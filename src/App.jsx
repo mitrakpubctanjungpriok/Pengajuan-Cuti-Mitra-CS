@@ -4,7 +4,7 @@ import { Calendar, User, Clock, FileText, Camera, Settings, LogOut, Check, X, Se
 // ====================================================================
 // KONFIGURASI GOOGLE APPS SCRIPT
 // ====================================================================
-const GOOGLE_SCRIPT_URL = 'YOUR_GOOGLE_SCRIPT_URL_HERE'; // Ganti dengan URL Web App Anda
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyUzK2L35jz-6qVdY_YM6TiEsSCXb4VahhlQnYAb8StBEXf9c1y4RudIM1dpsqWMFrE/exec'; // Ganti dengan URL Web App Anda
 
 // ====================================================================
 // API Functions - Komunikasi dengan Google Sheets
