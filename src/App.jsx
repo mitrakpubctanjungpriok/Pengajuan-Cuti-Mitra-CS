@@ -686,6 +686,7 @@ const App = () => {
   }
 
   // ====================================================================
+// ====================================================================
   // UI: Admin Login Modal
   // ====================================================================
   if (showAdminLogin && !isAdminLoggedIn) {
@@ -737,7 +738,6 @@ const App = () => {
             >
               {loading ? 'Memverifikasi...' : 'Login'}
             </button>
-             </div>
           </div>
         </div>
       </div>
@@ -798,7 +798,6 @@ const App = () => {
                 </div>
               </div>
             </div>
-
             {/* Modal Ganti Password */}
             {showChangePassword && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
