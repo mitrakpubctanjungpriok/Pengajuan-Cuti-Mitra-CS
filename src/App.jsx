@@ -737,14 +737,7 @@ const App = () => {
             >
               {loading ? 'Memverifikasi...' : 'Login'}
             </button>
-
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-xs text-blue-700">
-                <strong>Default Login:</strong><br/>
-                Username: admin<br/>
-                Password: admin123
-              </p>
-            </div>
+             </div>
           </div>
         </div>
       </div>
