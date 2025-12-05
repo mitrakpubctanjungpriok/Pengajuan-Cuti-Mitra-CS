@@ -27,9 +27,4 @@ Deploy ke Cloudflare Pages:
 3. Build command: `npm run build`
 4. Output directory: `dist`
 
-## Default Login Admin
-
-- Username: `admin`
-- Password: `admin123`
-
-**Segera ganti password setelah login pertama!**
+"by MUHAMMAD ALFINAS"
