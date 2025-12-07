@@ -1,72 +1,92 @@
-# Sistem Izin Cuti Karyawan
+# 🏢 Sistem Izin Cuti Karyawan
 
-Aplikasi manajemen cuti karyawan berbasis web dengan integrasi Google Sheets dan notifikasi email otomatis.
+Aplikasi web untuk mengelola pengajuan cuti karyawan dengan notifikasi email otomatis dan integrasi WhatsApp.
 
-## 🚀 Fitur Utama
+## ✨ Fitur Utama
 
-- ✅ Login karyawan dengan ID/NIP
-- ✅ Input email untuk notifikasi
-- ✅ Pengajuan cuti lengkap dengan form terstruktur
-- ✅ Notifikasi email otomatis ke admin saat ada pengajuan
-- ✅ Notifikasi email otomatis ke karyawan saat di-approve/reject
-- ✅ Panel admin untuk kelola pengajuan & karyawan
-- ✅ Import data karyawan via CSV
-- ✅ Realtime sync dengan Google Sheets
-- ✅ Mobile responsive
+- ✅ Pengajuan cuti karyawan (Cuti Tahunan & Cuti Sakit)
+- ✅ Panel Admin untuk approve/reject pengajuan
+- ✅ Notifikasi email otomatis ke admin
+- ✅ Integrasi WhatsApp untuk konfirmasi ke pengawas
+- ✅ Upload lampiran surat dokter untuk cuti sakit
+- ✅ Manajemen data karyawan
+- ✅ Import data karyawan dari CSV/Excel
+- ✅ Histori pengajuan cuti dengan filter tanggal
 
-## 🔧 Setup
+## 🚀 Setup Google Apps Script
 
-### Prerequisites
-- Google Account (untuk Google Sheets & Apps Script)
-- GitHub Account
-- Cloudflare Account
+### 1. Buat Google Spreadsheet
+- Buka [Google Sheets](https://sheets.google.com)
+- Buat spreadsheet baru
+- Buat 3 sheet: `Karyawan`, `Pengajuan Cuti`, `Admin`
 
-### Langkah Deploy
+### 2. Setup Apps Script
+- Di spreadsheet, klik **Extensions** → **Apps Script**
+- Hapus code default, copy paste code dari `google-apps-script.js`
+- **PENTING:** Ganti `ADMIN_EMAIL` di baris 15 dengan email Anda
+- Klik **Save** (icon disket)
 
-1. **Setup Google Apps Script**
-   - Buat Google Spreadsheet baru
-   - Buka Extensions → Apps Script
-   - Copy kode dari `google-apps-script.js`
-   - Deploy sebagai Web App
-   - Copy URL Web App
+### 3. Deploy Web App
+- Klik **Deploy** → **New deployment**
+- Klik icon ⚙️ → Pilih **Web app**
+- Isi deskripsi: "Leave Management API"
+- Execute as: **Me**
+- Who has access: **Anyone**
+- Klik **Deploy**
+- **Copy URL** yang muncul (contoh: `https://script.google.com/macros/s/.../exec`)
 
-2. **Update Konfigurasi**
-   - Edit `src/App.jsx`
-   - Ganti `GOOGLE_SCRIPT_URL` dengan URL Web App Anda
+### 4. Update URL di Aplikasi
+- Buka file `src/App.jsx`
+- Di baris 9, ganti `GOOGLE_SCRIPT_URL` dengan URL yang Anda copy
+- Save file
 
-3. **Deploy ke Cloudflare Pages**
-   - Push repository ke GitHub
-   - Connect ke Cloudflare Pages
-   - Build settings:
-     - Framework: Vite
-     - Build command: `npm run build`
-     - Build output: `dist`
+## 📦 Deploy ke Cloudflare Pages
 
-4. **Import Data Karyawan**
-   - Buka Google Sheets
-   - Copy data dari `data-karyawan.csv`
-   - Paste di sheet "Karyawan"
+Aplikasi sudah siap deploy! Ikuti langkah di bawah.
 
-## 🔐 Login Default
+## 🔐 Default Login Admin
 
-**Admin:**
-- Username:
-- Password:
+- **Username:** admin
+- **Password:** admin123
 
-**Karyawan:**
-- Login dengan ID/NIP (contoh: 192, 2, 89, dll)
+⚠️ Segera ganti password setelah login pertama!
 
-## 📧 Konfigurasi Email
+## 📱 Cara Penggunaan
 
-Edit email admin di Google Apps Script:
-```javascript
-const ADMIN_EMAIL = 'your-email@example.com';
-```
+### Untuk Karyawan:
+1. Pilih nama karyawan dari daftar
+2. Isi form pengajuan cuti
+3. Upload lampiran (jika cuti sakit)
+4. Submit pengajuan
+5. Tunggu approval dari admin
 
-## 📱 URL Production
+### Untuk Admin:
+1. Klik tombol "Admin" di pojok kanan atas
+2. Login dengan username & password
+3. Review pengajuan cuti yang masuk
+4. Approve atau Reject pengajuan
+5. Untuk Anggota, klik tombol WhatsApp untuk konfirmasi ke pengawas
 
-Setelah deploy: `https://sistem-izin-cuti.pages.dev`
+## 🛠️ Teknologi
 
-## 📄 Lisensi
+- React 18
+- Vite
+- Tailwind CSS
+- Lucide React (icons)
+- Google Apps Script (backend)
+- Google Sheets (database)
 
-MIT License
+## 📧 Notifikasi Email
+
+Email otomatis akan dikirim ke admin saat ada pengajuan baru berisi:
+- Detail karyawan
+- Informasi cuti
+- Tombol WhatsApp (untuk konfirmasi ke pengawas)
+
+## 🎯 Support
+
+Untuk pertanyaan atau bantuan, hubungi administrator sistem.
+
+---
+
+Made with ❤️ for MUHAMMAD ALFINAS
