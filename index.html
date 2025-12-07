@@ -187,6 +187,7 @@
         const state = {
             isAdminLoggedIn: false,
             adminUsername: 'admin',
+            adminPassword: '',
             showAdminLogin: false,
             showChangePassword: false,
             employees: [],
@@ -502,9 +503,10 @@
         }
 
         async function handleAdminLogin() {
-            const { adminUsername, adminPassword } = state;
+            const username = document.getElementById('adminUsername').value;
+            const password = document.getElementById('adminPassword').value;
             
-            if (!adminUsername || !adminPassword) {
+            if (!username || !password) {
                 alert('Mohon isi username dan password!');
                 return;
             }
@@ -512,16 +514,15 @@
             state.loading = true;
             render();
 
-            const result = await API.verifyAdmin(adminUsername, adminPassword);
+            const result = await API.verifyAdmin(username, password);
 
             if (result.success) {
                 state.isAdminLoggedIn = true;
+                state.adminUsername = username;
                 state.showAdminLogin = false;
                 state.page = 'admin';
-                state.adminPassword = '';
             } else {
                 alert(result.error || 'Username atau password salah!');
-                state.adminPassword = '';
             }
 
             state.loading = false;
@@ -532,6 +533,7 @@
             state.isAdminLoggedIn = false;
             state.page = 'select';
             state.adminUsername = 'admin';
+            state.adminPassword = '';
             state.showChangePassword = false;
             state.oldPassword = '';
             state.newPassword = '';
@@ -540,7 +542,9 @@
         }
 
         async function handleChangePassword() {
-            const { oldPassword, newPassword, confirmPassword, adminUsername } = state;
+            const oldPassword = document.getElementById('oldPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
 
             if (!oldPassword || !newPassword || !confirmPassword) {
                 alert('Mohon isi semua field!');
@@ -560,7 +564,7 @@
             state.loading = true;
             render();
 
-            const result = await API.changeAdminPassword(adminUsername, oldPassword, newPassword);
+            const result = await API.changeAdminPassword(state.adminUsername, oldPassword, newPassword);
 
             if (result.success) {
                 alert('Password berhasil diubah!');
@@ -577,22 +581,25 @@
         }
 
         async function handleSaveEmployee() {
-            const { employeeFormData, editingEmployee } = state;
+            const empId = document.getElementById('empId')?.value || state.employeeFormData.id;
+            const empName = document.getElementById('empName')?.value || state.employeeFormData.name;
+            const empLeave = parseInt(document.getElementById('empLeave')?.value) || state.employeeFormData.totalLeave;
+            const empSupervisor = document.getElementById('empSupervisor')?.value || state.employeeFormData.supervisorPhone;
 
-            if (!employeeFormData.name || employeeFormData.totalLeave < 0) {
+            if (!empName || empLeave < 0) {
                 alert('Mohon isi nama dan jumlah cuti yang valid!');
                 return;
             }
 
-            if (!editingEmployee && !employeeFormData.id) {
+            if (!state.editingEmployee && !empId) {
                 alert('Mohon isi ID Karyawan (NIP/NIK)!');
                 return;
             }
 
-            if (!editingEmployee) {
-                const isDuplicate = state.employees.some(emp => emp.id === employeeFormData.id);
+            if (!state.editingEmployee) {
+                const isDuplicate = state.employees.some(emp => emp.id === empId);
                 if (isDuplicate) {
-                    alert(`ID "${employeeFormData.id}" sudah digunakan! Gunakan ID yang berbeda.`);
+                    alert(`ID "${empId}" sudah digunakan! Gunakan ID yang berbeda.`);
                     return;
                 }
             }
@@ -600,11 +607,18 @@
             state.loading = true;
             render();
 
+            const employeeData = {
+                id: empId,
+                name: empName,
+                totalLeave: empLeave,
+                supervisorPhone: empSupervisor
+            };
+
             let result;
-            if (editingEmployee) {
-                result = await API.updateEmployee(editingEmployee.id, employeeFormData);
+            if (state.editingEmployee) {
+                result = await API.updateEmployee(state.editingEmployee.id, employeeData);
             } else {
-                result = await API.addEmployee({...employeeFormData, usedLeave: 0});
+                result = await API.addEmployee({...employeeData, usedLeave: 0});
             }
 
             if (result.success) {
@@ -612,7 +626,7 @@
                 state.showEmployeeForm = false;
                 state.editingEmployee = null;
                 state.employeeFormData = { id: '', name: '', totalLeave: 12, supervisorPhone: '' };
-                alert(editingEmployee ? 'Karyawan berhasil diupdate!' : 'Karyawan berhasil ditambahkan!');
+                alert(state.editingEmployee ? 'Karyawan berhasil diupdate!' : 'Karyawan berhasil ditambahkan!');
             } else {
                 alert('Gagal menyimpan data: ' + (result.error || 'Unknown error'));
             }
@@ -679,7 +693,6 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
                                 <input type="text" id="adminUsername" value="${state.adminUsername}" 
-                                    onchange="state.adminUsername = this.value"
                                     class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                     placeholder="Masukkan username">
                             </div>
@@ -687,7 +700,6 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
                                 <input type="password" id="adminPassword" 
-                                    onchange="state.adminPassword = this.value"
                                     onkeypress="if(event.key === 'Enter') handleAdminLogin()"
                                     class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                                     placeholder="Masukkan password">
@@ -697,14 +709,6 @@
                                 class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:opacity-50">
                                 ${state.loading ? 'Memverifikasi...' : 'Login'}
                             </button>
-
-                            <div class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                <p class="text-xs text-blue-700">
-                                    <strong>Default Login:</strong><br/>
-                                    Username: admin<br/>
-                                    Password: admin123
-                                </p>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -814,7 +818,7 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                     </svg>
                                     <label class="text-sm font-medium text-gray-700">Filter Tanggal:</label>
-                                    <input type="date" value="${state.adminFilterDate}"
+                                    <input type="date" id="adminFilterDate" value="${state.adminFilterDate}"
                                         onchange="state.adminFilterDate = this.value; render();"
                                         class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-500">
                                     <button onclick="state.adminFilterDate = ''; render();"
@@ -968,7 +972,7 @@
                     <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-xl font-bold">Ganti Password Admin</h3>
-                            <button onclick="state.showChangePassword = false; state.oldPassword = ''; state.newPassword = ''; state.confirmPassword = ''; render();"
+                            <button onclick="state.showChangePassword = false; render();"
                                 class="text-gray-500 hover:text-gray-700 text-2xl">✕</button>
                         </div>
 
@@ -982,7 +986,6 @@
                             <div>
                                 <label class="block text-sm font-medium mb-2">Password Lama</label>
                                 <input type="password" id="oldPassword"
-                                    onchange="state.oldPassword = this.value"
                                     class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                     placeholder="Masukkan password lama">
                             </div>
@@ -990,7 +993,6 @@
                             <div>
                                 <label class="block text-sm font-medium mb-2">Password Baru</label>
                                 <input type="password" id="newPassword"
-                                    onchange="state.newPassword = this.value"
                                     class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                     placeholder="Minimal 6 karakter">
                             </div>
@@ -998,13 +1000,12 @@
                             <div>
                                 <label class="block text-sm font-medium mb-2">Konfirmasi Password Baru</label>
                                 <input type="password" id="confirmPassword"
-                                    onchange="state.confirmPassword = this.value"
                                     class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                     placeholder="Ulangi password baru">
                             </div>
 
                             <div class="flex justify-end gap-3 mt-6">
-                                <button onclick="state.showChangePassword = false; state.oldPassword = ''; state.newPassword = ''; state.confirmPassword = ''; render();"
+                                <button onclick="state.showChangePassword = false; render();"
                                     class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg">
                                     Batal
                                 </button>
@@ -1042,7 +1043,6 @@
                                         ID Karyawan (NIP/NIK) ${!state.editingEmployee ? '<span class="text-red-500">*</span>' : ''}
                                     </label>
                                     <input type="text" id="empId" value="${state.employeeFormData.id}"
-                                        onchange="state.employeeFormData.id = this.value.toUpperCase(); render();"
                                         class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                         placeholder="Contoh: EMP001"
                                         ${state.editingEmployee ? 'disabled' : ''}>
@@ -1053,7 +1053,6 @@
                                         Nama Karyawan <span class="text-red-500">*</span>
                                     </label>
                                     <input type="text" id="empName" value="${state.employeeFormData.name}"
-                                        onchange="state.employeeFormData.name = this.value; render();"
                                         class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                         placeholder="Nama lengkap">
                                 </div>
@@ -1062,7 +1061,6 @@
                                         Total Cuti Tahunan <span class="text-red-500">*</span>
                                     </label>
                                     <input type="number" id="empLeave" value="${state.employeeFormData.totalLeave}"
-                                        onchange="state.employeeFormData.totalLeave = parseInt(this.value) || 0; render();"
                                         class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                         min="0">
                                 </div>
@@ -1071,7 +1069,6 @@
                                         No. WA Pengawas <span class="text-gray-500">(opsional)</span>
                                     </label>
                                     <input type="tel" id="empSupervisor" value="${state.employeeFormData.supervisorPhone}"
-                                        onchange="state.employeeFormData.supervisorPhone = this.value; render();"
                                         class="w-full px-4 py-2 border border-gray-300 rounded-lg"
                                         placeholder="628123456789">
                                     <p class="text-xs text-gray-500 mt-1">Format: 628xxxxxxxxxx (tanpa +)</p>
@@ -1499,7 +1496,7 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                     </svg>
                                     <input type="text" id="searchInput" placeholder="Cari nama karyawan..." value="${state.searchTerm}"
-                                        oninput="state.searchTerm = this.value; setTimeout(() => render(), 300);"
+                                        oninput="state.searchTerm = this.value; render();"
                                         class="w-full pl-12 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                                 </div>
                             </div>
@@ -1528,19 +1525,6 @@
                             ${filteredEmployees.length === 0 ? `
                                 <p class="text-center text-gray-500 py-8">Tidak ada karyawan ditemukan</p>
                             ` : ''}
-                        </div>
-                        
-                        <div class="mt-8 p-4 bg-blue-100 rounded-xl border border-blue-300">
-                            <p class="font-bold text-blue-800 mb-2">📋 Informasi Sistem:</p>
-                            <ul class="text-sm text-blue-700 space-y-1 list-disc list-inside">
-                                <li>Pilih karyawan, isi form pengajuan cuti dengan lengkap</li>
-                                <li><strong>Jabatan Pengawas:</strong> Tidak perlu persetujuan pengawas</li>
-                                <li><strong>Jabatan Anggota:</strong> Perlu persetujuan pengawas</li>
-                                <li><strong>Cuti Tahunan:</strong> Tidak perlu lampiran foto</li>
-                                <li><strong>Cuti Sakit:</strong> Wajib lampirkan surat dokter/rawat inap</li>
-                                <li>Lama pengambilan cuti: 1 hari atau 2 hari</li>
-                                <li>Notifikasi otomatis akan dikirim ke admin via email</li>
-                            </ul>
                         </div>
                     </div>
                 </div>
