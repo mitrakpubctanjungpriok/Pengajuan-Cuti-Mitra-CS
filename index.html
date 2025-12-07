@@ -32,7 +32,7 @@
         // ====================================================================
         const CONFIG = {
             GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyUzK2L35jz-6qVdY_YM6TiEsSCXb4VahhlQnYAb8StBEXf9c1y4RudIM1dpsqWMFrE/exec',
-            ADMIN_EMAIL: 'admin@example.com' // Email untuk notifikasi
+            ADMIN_EMAIL: 'mitrakpubctanjungpriok@gmail.com' // Email untuk notifikasi
         };
 
         // ====================================================================
@@ -666,57 +666,88 @@
         }
 
         async function handleSaveEmployee() {
-            const empId = document.getElementById('empId')?.value || state.employeeFormData.id;
-            const empName = document.getElementById('empName')?.value || state.employeeFormData.name;
-            const empLeave = parseInt(document.getElementById('empLeave')?.value) || state.employeeFormData.totalLeave;
-            const empSupervisor = document.getElementById('empSupervisor')?.value || state.employeeFormData.supervisorPhone;
+            const empId = document.getElementById('empId')?.value;
+            const empName = document.getElementById('empName')?.value;
+            const empTotalLeave = parseInt(document.getElementById('empLeave')?.value);
+            const empSupervisor = document.getElementById('empSupervisor')?.value;
 
-            if (!empName || empLeave < 0) {
-                alert('Mohon isi nama dan jumlah cuti yang valid!');
+            console.log('=== SAVE EMPLOYEE DEBUG ===');
+            console.log('empId:', empId);
+            console.log('empName:', empName);
+            console.log('empTotalLeave (dari input):', empTotalLeave);
+            console.log('empSupervisor:', empSupervisor);
+            console.log('state.editingEmployee:', state.editingEmployee);
+
+            if (!empName) {
+                alert('MOHON ISI NAMA KARYAWAN!');
+                return;
+            }
+
+            if (isNaN(empTotalLeave) || empTotalLeave < 0 || empTotalLeave > 12) {
+                alert('TOTAL CUTI HARUS ANTARA 0-12 HARI!');
                 return;
             }
 
             if (!state.editingEmployee && !empId) {
-                alert('Mohon isi ID Karyawan (NIP/NIK)!');
+                alert('MOHON ISI ID KARYAWAN (NIP/NIK)!');
                 return;
             }
 
             if (!state.editingEmployee) {
                 const isDuplicate = state.employees.some(emp => emp.id === empId);
                 if (isDuplicate) {
-                    alert(`ID "${empId}" sudah digunakan! Gunakan ID yang berbeda.`);
+                    alert(`ID "${empId}" SUDAH DIGUNAKAN! GUNAKAN ID YANG BERBEDA.`);
                     return;
                 }
             }
 
-            state.loading = true;
-            render();
+            // Hitung cuti terpakai: jika admin input 5 (sisa), maka terpakai = 12 - 5 = 7
+            const usedLeave = 12 - empTotalLeave;
+
+            console.log('Calculated usedLeave:', usedLeave);
 
             const employeeData = {
-                id: empId,
+                id: state.editingEmployee ? state.editingEmployee.id : empId,
                 name: empName,
-                totalLeave: empLeave,
+                totalLeave: 12, // Total cuti selalu 12 hari
+                usedLeave: usedLeave, // Dihitung dari pengurangan (12 - input)
                 supervisorPhone: empSupervisor
             };
+
+            console.log('Employee Data to save:', employeeData);
+
+            // UPDATE STATE LOKAL LANGSUNG (karena no-cors mode)
+            if (state.editingEmployee) {
+                // Update existing employee
+                const index = state.employees.findIndex(e => e.id === state.editingEmployee.id);
+                if (index !== -1) {
+                    state.employees[index] = employeeData;
+                }
+            } else {
+                // Add new employee
+                state.employees.push(employeeData);
+            }
+
+            // Kirim ke backend (meskipun no-cors tidak bisa verify response)
+            state.loading = true;
+            render();
 
             let result;
             if (state.editingEmployee) {
                 result = await API.updateEmployee(state.editingEmployee.id, employeeData);
             } else {
-                result = await API.addEmployee({...employeeData, usedLeave: 0});
+                result = await API.addEmployee(employeeData);
             }
 
-            if (result.success) {
-                await loadData();
-                state.showEmployeeForm = false;
-                state.editingEmployee = null;
-                state.employeeFormData = { id: '', name: '', totalLeave: 12, supervisorPhone: '' };
-                alert(state.editingEmployee ? 'Karyawan berhasil diupdate!' : 'Karyawan berhasil ditambahkan!');
-            } else {
-                alert('Gagal menyimpan data: ' + (result.error || 'Unknown error'));
-            }
-
+            // Close form dan reset
+            state.showEmployeeForm = false;
+            state.editingEmployee = null;
+            state.employeeFormData = { id: '', name: '', totalLeave: 12, supervisorPhone: '' };
+            state.employeeSearchTerm = '';
             state.loading = false;
+            
+            alert(state.editingEmployee ? 'KARYAWAN BERHASIL DIUPDATE!' : 'KARYAWAN BERHASIL DITAMBAHKAN!');
+            
             render();
         }
 
@@ -741,13 +772,16 @@
 
         function handleEditEmployee(emp) {
             state.editingEmployee = emp;
+            // Hitung sisa cuti untuk ditampilkan di form
+            const sisaCuti = (emp.totalLeave || 12) - (emp.usedLeave || 0);
             state.employeeFormData = {
                 id: emp.id,
                 name: emp.name,
-                totalLeave: emp.totalLeave,
+                totalLeave: sisaCuti, // Tampilkan sisa cuti, bukan total
                 supervisorPhone: emp.supervisorPhone || ''
             };
             state.showEmployeeForm = true;
+            state.employeeSearchTerm = '';
             render();
         }
 
@@ -1186,7 +1220,7 @@
                                     <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
                                     </svg>
-                                    <input type="text" placeholder="Cari nama atau ID karyawan..." value="${state.employeeSearchTerm}"
+                                    <input type="text" id="employeeSearchInput" placeholder="Cari nama atau ID karyawan..." value="${state.employeeSearchTerm}"
                                         oninput="updateEmployeeSearchTerm(this.value)"
                                         class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
                                 </div>
