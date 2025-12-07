@@ -1,92 +1,67 @@
-# 🏢 Sistem Izin Cuti Karyawan
+# 📋 Sistem Izin Cuti Karyawan
 
-Aplikasi web untuk mengelola pengajuan cuti karyawan dengan notifikasi email otomatis dan integrasi WhatsApp.
+Aplikasi web modern untuk mengelola pengajuan cuti karyawan dengan sistem approval, notifikasi email otomatis, dan integrasi WhatsApp untuk komunikasi dengan pengawas.
 
-## ✨ Fitur Utama
+![Status](https://img.shields.io/badge/status-active-success.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-- ✅ Pengajuan cuti karyawan (Cuti Tahunan & Cuti Sakit)
-- ✅ Panel Admin untuk approve/reject pengajuan
-- ✅ Notifikasi email otomatis ke admin
-- ✅ Integrasi WhatsApp untuk konfirmasi ke pengawas
-- ✅ Upload lampiran surat dokter untuk cuti sakit
-- ✅ Manajemen data karyawan
-- ✅ Import data karyawan dari CSV/Excel
-- ✅ Histori pengajuan cuti dengan filter tanggal
+## 🌟 Fitur Utama
 
-## 🚀 Setup Google Apps Script
+### 👤 **Untuk Karyawan:**
+- ✅ Ajukan cuti dengan formulir lengkap dan mudah
+- ✅ Pilih jenis cuti: Tahunan atau Sakit
+- ✅ Upload foto lampiran surat dokter (wajib untuk cuti sakit)
+- ✅ Lihat sisa cuti tahunan secara real-time
+- ✅ Tracking status pengajuan (Menunggu/Disetujui/Ditolak)
 
-### 1. Buat Google Spreadsheet
-- Buka [Google Sheets](https://sheets.google.com)
-- Buat spreadsheet baru
-- Buat 3 sheet: `Karyawan`, `Pengajuan Cuti`, `Admin`
+### 👨‍💼 **Untuk Admin:**
+- ✅ Dashboard admin dengan statistik lengkap
+- ✅ Approve/Reject pengajuan cuti
+- ✅ Kelola data karyawan (Tambah/Edit/Hapus)
+- ✅ Input nomor WhatsApp pengawas untuk setiap karyawan
+- ✅ Tombol WhatsApp langsung untuk konfirmasi ke pengawas
+- ✅ Ganti password admin
+- ✅ Filter riwayat pengajuan berdasarkan tanggal
+- ✅ Notifikasi email otomatis saat ada pengajuan baru
 
-### 2. Setup Apps Script
-- Di spreadsheet, klik **Extensions** → **Apps Script**
-- Hapus code default, copy paste code dari `google-apps-script.js`
-- **PENTING:** Ganti `ADMIN_EMAIL` di baris 15 dengan email Anda
-- Klik **Save** (icon disket)
+### 🔐 **Keamanan:**
+- ✅ Login admin dengan password terenkripsi
+- ✅ Data tersimpan aman di Google Sheets
+- ✅ Session management
 
-### 3. Deploy Web App
-- Klik **Deploy** → **New deployment**
-- Klik icon ⚙️ → Pilih **Web app**
-- Isi deskripsi: "Leave Management API"
-- Execute as: **Me**
-- Who has access: **Anyone**
-- Klik **Deploy**
-- **Copy URL** yang muncul (contoh: `https://script.google.com/macros/s/.../exec`)
+## 🚀 Demo
 
-### 4. Update URL di Aplikasi
-- Buka file `src/App.jsx`
-- Di baris 9, ganti `GOOGLE_SCRIPT_URL` dengan URL yang Anda copy
-- Save file
+**Live Demo:** [https://sistem-cuti.pages.dev](https://sistem-cuti.pages.dev)
 
-## 📦 Deploy ke Cloudflare Pages
+**Login Admin:**
+- Username: `admin`
+- Password: `admin123`
 
-Aplikasi sudah siap deploy! Ikuti langkah di bawah.
+## 📸 Screenshot
 
-## 🔐 Default Login Admin
+### Halaman Utama - Pilih Karyawan
+![Pilih Karyawan](https://via.placeholder.com/800x400?text=Halaman+Pilih+Karyawan)
 
-- **Username:** admin
-- **Password:** admin123
+### Form Pengajuan Cuti
+![Form Cuti](https://via.placeholder.com/800x400?text=Form+Pengajuan+Cuti)
 
-⚠️ Segera ganti password setelah login pertama!
+### Dashboard Admin
+![Dashboard Admin](https://via.placeholder.com/800x400?text=Dashboard+Admin)
 
-## 📱 Cara Penggunaan
+## 🛠️ Teknologi yang Digunakan
 
-### Untuk Karyawan:
-1. Pilih nama karyawan dari daftar
-2. Isi form pengajuan cuti
-3. Upload lampiran (jika cuti sakit)
-4. Submit pengajuan
-5. Tunggu approval dari admin
+- **Frontend:** HTML5, CSS3 (Tailwind CSS), Vanilla JavaScript
+- **Backend:** Google Apps Script
+- **Database:** Google Sheets
+- **Hosting:** Cloudflare Pages
+- **Version Control:** GitHub
+- **Email:** Gmail (via Apps Script)
+- **Messaging:** WhatsApp Web API
 
-### Untuk Admin:
-1. Klik tombol "Admin" di pojok kanan atas
-2. Login dengan username & password
-3. Review pengajuan cuti yang masuk
-4. Approve atau Reject pengajuan
-5. Untuk Anggota, klik tombol WhatsApp untuk konfirmasi ke pengawas
+## 📋 Persyaratan
 
-## 🛠️ Teknologi
+- Akun Google (untuk Google Sheets & Apps Script)
+- Akun GitHub (untuk version control)
+- Akun Cloudflare (untuk hosting - gratis)
 
-- React 18
-- Vite
-- Tailwind CSS
-- Lucide React (icons)
-- Google Apps Script (backend)
-- Google Sheets (database)
-
-## 📧 Notifikasi Email
-
-Email otomatis akan dikirim ke admin saat ada pengajuan baru berisi:
-- Detail karyawan
-- Informasi cuti
-- Tombol WhatsApp (untuk konfirmasi ke pengawas)
-
-## 🎯 Support
-
-Untuk pertanyaan atau bantuan, hubungi administrator sistem.
-
----
-
-Made with ❤️ for MUHAMMAD ALFINAS
+by "MUHAMMAD ALFINAS"
