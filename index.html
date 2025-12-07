@@ -716,19 +716,7 @@
 
             console.log('Employee Data to save:', employeeData);
 
-            // UPDATE STATE LOKAL LANGSUNG (karena no-cors mode)
-            if (state.editingEmployee) {
-                // Update existing employee
-                const index = state.employees.findIndex(e => e.id === state.editingEmployee.id);
-                if (index !== -1) {
-                    state.employees[index] = employeeData;
-                }
-            } else {
-                // Add new employee
-                state.employees.push(employeeData);
-            }
-
-            // Kirim ke backend (meskipun no-cors tidak bisa verify response)
+            // Kirim ke backend
             state.loading = true;
             render();
 
@@ -739,6 +727,10 @@
                 result = await API.addEmployee(employeeData);
             }
 
+            // Tunggu sebentar lalu reload data dari server
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Tunggu 1 detik
+            await loadData(); // Reload data dari Google Sheets
+            
             // Close form dan reset
             state.showEmployeeForm = false;
             state.editingEmployee = null;
@@ -1185,7 +1177,8 @@
                                     </label>
                                     <input type="number" id="empLeave" value="${state.employeeFormData.totalLeave}"
                                         class="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                                        min="0">
+                                        min="0" max="12">
+                                    <p class="text-xs text-gray-500 mt-1">Maksimal 12 hari</p>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium mb-2">
