@@ -9,6 +9,7 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         body {
             font-family: 'Inter', sans-serif;
+            text-transform: uppercase;
         }
         .animate-spin {
             animation: spin 1s linear infinite;
@@ -16,6 +17,9 @@
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+        }
+        input, textarea, select {
+            text-transform: uppercase;
         }
     </style>
 </head>
@@ -227,7 +231,8 @@
             editingEmployee: null,
             oldPassword: '',
             newPassword: '',
-            confirmPassword: ''
+            confirmPassword: '',
+            employeeSearchTerm: ''
         };
 
         // ====================================================================
@@ -298,6 +303,49 @@
 
             if (filteredEmployees.length === 0) {
                 container.innerHTML = '<p class="text-center text-gray-500 py-8 col-span-full">Tidak ada karyawan ditemukan</p>';
+            }
+        }
+
+        // Update employee search di modal
+        function updateEmployeeSearchTerm(value) {
+            state.employeeSearchTerm = value;
+            updateModalEmployeeList();
+        }
+
+        function updateModalEmployeeList() {
+            const container = document.getElementById('modalEmployeeListContainer');
+            if (!container) return;
+
+            const filteredEmployees = state.employees.filter(emp => 
+                emp.name.toLowerCase().includes(state.employeeSearchTerm.toLowerCase()) ||
+                emp.id.toLowerCase().includes(state.employeeSearchTerm.toLowerCase())
+            );
+
+            container.innerHTML = filteredEmployees.map(emp => `
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 gap-3">
+                    <div class="flex-1">
+                        <p class="font-semibold text-gray-800">${emp.name}</p>
+                        <p class="text-xs text-gray-500">ID: ${emp.id}</p>
+                        <p class="text-sm text-gray-600">
+                            Total: ${emp.totalLeave} hari | Terpakai: ${emp.usedLeave} hari | Sisa: ${emp.totalLeave - emp.usedLeave} hari
+                        </p>
+                        ${emp.supervisorPhone ? `<p class="text-xs text-blue-600">📱 WA Pengawas: ${emp.supervisorPhone}</p>` : ''}
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick='handleEditEmployee(${JSON.stringify(emp)})'
+                            class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                            Edit
+                        </button>
+                        <button onclick="handleDeleteEmployee('${emp.id}')"
+                            class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm">
+                            Hapus
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            if (filteredEmployees.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-8">Tidak ada karyawan ditemukan</p>';
             }
         }
 
@@ -1129,9 +1177,25 @@
 
                         <!-- Daftar Karyawan -->
                         <div>
-                            <h4 class="font-semibold mb-3">Daftar Karyawan (${state.employees.length})</h4>
-                            <div class="space-y-2 max-h-96 overflow-y-auto">
-                                ${state.employees.map(emp => `
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="font-semibold">Daftar Karyawan (${state.employees.length})</h4>
+                            </div>
+                            <!-- Pencarian Karyawan -->
+                            <div class="mb-3">
+                                <div class="relative">
+                                    <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                    <input type="text" placeholder="Cari nama atau ID karyawan..." value="${state.employeeSearchTerm}"
+                                        oninput="updateEmployeeSearchTerm(this.value)"
+                                        class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                                </div>
+                            </div>
+                            <div id="modalEmployeeListContainer" class="space-y-2 max-h-96 overflow-y-auto">
+                                ${state.employees.filter(emp => 
+                                    emp.name.toLowerCase().includes(state.employeeSearchTerm.toLowerCase()) ||
+                                    emp.id.toLowerCase().includes(state.employeeSearchTerm.toLowerCase())
+                                ).map(emp => `
                                     <div class="flex flex-col md:flex-row items-start md:items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 gap-3">
                                         <div class="flex-1">
                                             <p class="font-semibold text-gray-800">${emp.name}</p>
