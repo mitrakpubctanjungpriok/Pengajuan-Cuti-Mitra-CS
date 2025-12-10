@@ -1625,6 +1625,10 @@ Terima kasih.`
                                             <p class="text-gray-500 text-xs">NO. TELEPON</p>
                                             <p class="font-semibold text-gray-800">${req.noTelepon}</p>
                                         </div>
+                                        <div class="bg-white rounded-lg p-2 sm:p-3 border">
+                                            <p class="text-gray-500 text-xs">NO. WA PENGAWAS</p>
+                                            <p class="font-semibold text-gray-800">${req.noWaPengawas || 'TIDAK ADA'}</p>
+                                        </div>
                                         <div class="bg-white rounded-lg p-2 sm:p-3 border col-span-2 sm:col-span-3">
                                             <p class="text-gray-500 text-xs">PETUGAS PENGGANTI</p>
                                             <p class="font-semibold text-gray-800">${req.petugasPengganti}</p>
@@ -1646,11 +1650,15 @@ Terima kasih.`
                                     
                                     <!-- Action Buttons -->
                                     <div class="flex flex-wrap gap-2 pt-3 border-t border-yellow-200">
-                                        ${req.noWaPengawas ? `
+                                        ${req.noWaPengawas && req.noWaPengawas !== '-' && req.noWaPengawas.length > 5 ? `
                                             <button onclick="openWhatsApp('${req.noWaPengawas}', '${req.nama}', '${req.jenisCuti}', '${req.tanggalMulai}', '${req.tanggalSelesai}')" class="flex-1 sm:flex-none px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs font-medium flex items-center justify-center gap-1">
-                                                📱 <span class="hidden sm:inline">WHATSAPP PENGAWAS</span><span class="sm:hidden">WA</span>
+                                                📱 WA PENGAWAS
                                             </button>
-                                        ` : ''}
+                                        ` : `
+                                            <span class="flex-1 sm:flex-none px-3 py-2 bg-gray-300 text-gray-600 rounded-lg text-xs font-medium flex items-center justify-center gap-1 cursor-not-allowed">
+                                                📱 NO WA TIDAK ADA
+                                            </span>
+                                        `}
                                         <button onclick="handleUpdateLeaveStatus(${req.rowIndex}, 'Disetujui')" class="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs font-medium flex items-center justify-center gap-1">
                                             ✅ SETUJUI
                                         </button>
