@@ -843,7 +843,7 @@
                 label: 'KONFIRMASI PERSETUJUAN',
                 message: (nama, jenisCuti, tanggal) => `Yth. Bapak/Ibu Pengawas,
 
-Dengan hormat, saya Admin Sistem Cuti KPU BC Tanjung Priok.
+Dengan hormat, saya Admin Sistem Cuti Mitra KPU BC Tanjung Priok.
 
 Mohon konfirmasi persetujuan untuk pengajuan cuti berikut:
 
@@ -866,18 +866,21 @@ https://pengajuan-cuti-mitra-cs.pages.dev/`
                 label: 'REMINDER PERSETUJUAN',
                 message: (nama, jenisCuti, tanggal) => `Yth. Bapak/Ibu Pengawas,
 
+Dengan hormat, saya Admin Sistem Cuti Mitra KPU BC Tanjung Priok.
+
 Mohon maaf mengganggu. Ini adalah pengingat untuk konfirmasi pengajuan cuti:
 
 • Nama: *${nama}*
 • Jenis: *${jenisCuti}*
 • Tanggal: *${tanggal}*
 
-Mohon balas:
-✅ *SETUJU* atau ❌ *TIDAK SETUJU*
+Mohon balas pesan ini dengan:
+✅ *SETUJU*
+❌ *TIDAK SETUJU*
 
 Terima kasih.
 
-_Sistem Izin Cuti KPU BC Tanjung Priok_`
+_Sistem Izin Cuti Mitra KPU BC Tanjung Priok_`
             },
             {
                 id: 3,
@@ -1650,13 +1653,13 @@ Terima kasih.`
                                     
                                     <!-- Action Buttons -->
                                     <div class="flex flex-wrap gap-2 pt-3 border-t border-yellow-200">
-                                        ${req.noWaPengawas && req.noWaPengawas !== '-' && req.noWaPengawas.length > 5 ? `
+                                        ${req.noWaPengawas && req.noWaPengawas.toString().replace(/[^0-9]/g, '').length >= 10 ? `
                                             <button onclick="openWhatsApp('${req.noWaPengawas}', '${req.nama}', '${req.jenisCuti}', '${req.tanggalMulai}', '${req.tanggalSelesai}')" class="flex-1 sm:flex-none px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs font-medium flex items-center justify-center gap-1">
                                                 📱 WA PENGAWAS
                                             </button>
                                         ` : `
                                             <span class="flex-1 sm:flex-none px-3 py-2 bg-gray-300 text-gray-600 rounded-lg text-xs font-medium flex items-center justify-center gap-1 cursor-not-allowed">
-                                                📱 NO WA TIDAK ADA
+                                                📱 NO WA TIDAK ADA (${req.noWaPengawas || 'kosong'})
                                             </span>
                                         `}
                                         <button onclick="handleUpdateLeaveStatus(${req.rowIndex}, 'Disetujui')" class="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-xs font-medium flex items-center justify-center gap-1">
