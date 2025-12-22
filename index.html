@@ -30,6 +30,10 @@
         input::placeholder, textarea::placeholder {
             text-transform: uppercase;
         }
+        /* Jangan paksa uppercase untuk field yang sifatnya sensitif seperti password */
+        .no-transform {
+            text-transform: none !important;
+        }
         .modal-backdrop {
             backdrop-filter: blur(4px);
         }
@@ -101,7 +105,8 @@
         const CONFIG = {
             GOOGLE_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyem35FwcFEFtnWIaHeK4gjaU00Y8HPAIyQXjeRxzZ-lspb-4R7PRSmx686TxAObDVnGQ/exec',
             ADMIN_EMAIL: 'mitrakpubctanjungpriok@gmail.com',
-            AUTO_REFRESH_INTERVAL: 30000 // 30 detik
+            ADMIN_WA: '', // OPSIONAL: CONTOH '628123456789'
+            AUTO_REFRESH_INTERVAL: 5000 // 5 DETIK
         };
 
         // State Management
@@ -151,7 +156,25 @@
             isRefreshing: false,
             showCheckStatus: false,
             selectedEmployeeForStatus: null,
-            employeeLeaveHistory: []
+            employeeLeaveHistory: [],
+            websiteActive: true,
+            websiteStatusLoaded: false,
+            // ADMIN WHATSAPP SETTING
+            adminWa: '',
+            adminWaLoaded: false,
+            showAdminWaSettings: false,
+            adminWaDraft: '',
+            adminWaPassDraft: '',
+
+            // ADMIN SETTINGS HUB
+            showAdminSettings: false,
+
+            // KOP SURAT (NAMA PEJABAT MENGETAHUI)
+            kopMengetahuiName: '',
+            kopMengetahuiLoaded: false,
+            showKopNameSettings: false,
+            kopMengetahuiDraft: '',
+            kopMengetahuiPassDraft: ''
         };
 
         // Auto-refresh interval reference
@@ -163,6 +186,17 @@
             updateTimeDisplay();
         }, 1000);
 
+        // Helper: cek apakah UI admin sedang membuka modal/form
+        function isAdminUiBusy() {
+            return !!(
+                state.showEmployeeForm ||
+                state.showChangePassword ||
+                state.showAdminSettings ||
+                state.showAdminWaSettings ||
+                state.showKopNameSettings
+            );
+        }
+
         // Start auto-refresh for admin panel
         function startAutoRefresh() {
             if (autoRefreshInterval) {
@@ -171,7 +205,8 @@
             
             if (state.autoRefreshEnabled && state.page === 'admin') {
                 autoRefreshInterval = setInterval(async () => {
-                    if (state.page === 'admin' && !state.loading && !state.showEmployeeForm && !state.showChangePassword) {
+                    // Jangan refresh jika sedang mengetik/mengubah setting di modal
+                    if (state.page === 'admin' && !state.loading && !isAdminUiBusy()) {
                         await silentRefresh();
                     }
                 }, CONFIG.AUTO_REFRESH_INTERVAL);
@@ -183,6 +218,36 @@
             if (autoRefreshInterval) {
                 clearInterval(autoRefreshInterval);
                 autoRefreshInterval = null;
+            }
+        }
+
+        // =====================================================
+        // PASSWORD TOGGLE (SHOW/HIDE)
+        // =====================================================
+        function togglePasswordVisibility(inputId, btnId) {
+            const input = document.getElementById(inputId);
+            const btn = document.getElementById(btnId);
+            if (!input) return;
+
+            const isHidden = input.type === 'password';
+            input.type = isHidden ? 'text' : 'password';
+            // Jangan uppercase saat ditampilkan
+            input.classList.add('no-transform');
+
+            if (btn) {
+                btn.setAttribute('aria-label', isHidden ? 'SEMBUNYIKAN PASSWORD' : 'LIHAT PASSWORD');
+                btn.innerHTML = isHidden
+                    ? `
+                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    `
+                    : `
+                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                        </svg>
+                    `;
             }
         }
 
@@ -218,7 +283,12 @@
                 }
                 
                 state.lastRefresh = new Date();
-                render();
+
+                // PENTING: Jangan render ulang kalau modal/pengaturan sedang terbuka
+                // supaya input yang sedang diketik tidak ke-reset.
+                if (state.page === 'admin' && !isAdminUiBusy()) {
+                    render();
+                }
                 
             } catch (error) {
                 console.error('Silent refresh error:', error);
@@ -263,6 +333,449 @@
                 stopAutoRefresh();
             }
             render();
+        }
+
+        // =====================================================
+        // WEBSITE ACTIVE / MAINTENANCE (ADMIN TOGGLE)
+        // =====================================================
+        async function checkWebsiteStatus(silent = true) {
+            try {
+                const res = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=getWebsiteStatus&t=${Date.now()}`);
+                const data = await res.json();
+                if (data && data.success) {
+                    state.websiteActive = data.active !== false;
+                } else {
+                    // Fallback: jika action belum tersedia di backend
+                    state.websiteActive = true;
+                }
+            } catch (e) {
+                // Jika backend bermasalah, jangan memblokir penggunaan
+                state.websiteActive = true;
+            } finally {
+                state.websiteStatusLoaded = true;
+                if (!silent) render();
+            }
+        }
+
+        async function toggleWebsiteStatus() {
+            if (!state.isAdminLoggedIn) {
+                alert('ANDA HARUS LOGIN SEBAGAI ADMIN!');
+                return;
+            }
+
+            const next = !state.websiteActive;
+            const confirmText = next
+                ? 'AKTIFKAN KEMBALI WEBSITE?'
+                : 'NONAKTIFKAN WEBSITE? PENGGUNA TIDAK DAPAT MENGGUNAKAN FORM PENGAJUAN.';
+
+            if (!confirm(confirmText)) return;
+
+            // Optimistic update
+            state.websiteActive = next;
+            render();
+
+            try {
+                await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'setWebsiteStatus',
+                        active: next,
+                        adminName: state.adminUsername
+                    })
+                });
+            } catch (e) {
+                // Abaikan, akan kita re-check
+            } finally {
+                // Re-check agar sinkron dengan server
+                setTimeout(() => checkWebsiteStatus(false), 1200);
+            }
+        }
+
+        // =====================================================
+        // ADMIN WA SETTINGS
+        // =====================================================
+        async function fetchAdminWa(silent = true) {
+            try {
+                const res = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=getAdminWa&t=${Date.now()}`);
+                const data = await res.json();
+                if (data && data.success) {
+                    state.adminWa = (data.adminWa || '').toString().trim();
+                }
+            } catch (e) {
+                // fallback to config
+                state.adminWa = (state.adminWa || CONFIG.ADMIN_WA || '').toString().trim();
+            } finally {
+                state.adminWaLoaded = true;
+                if (!silent) render();
+            }
+        }
+
+        // =====================================================
+        // KOP SURAT - NAMA PEJABAT (MENGETAHUI)
+        // =====================================================
+        async function fetchKopMengetahuiName(silent = true) {
+            try {
+                const res = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=getKopMengetahuiName&t=${Date.now()}`);
+                const data = await res.json();
+                if (data && data.success) {
+                    state.kopMengetahuiName = (data.name || '').toString().trim();
+                }
+            } catch (e) {
+                // fallback
+                state.kopMengetahuiName = (state.kopMengetahuiName || 'PEJABAT').toString().trim();
+            } finally {
+                state.kopMengetahuiLoaded = true;
+                if (!silent) render();
+            }
+        }
+
+        function openKopNameSettings() {
+            if (!state.isAdminLoggedIn) {
+                alert('ANDA HARUS LOGIN SEBAGAI ADMIN!');
+                return;
+            }
+            // set draft agar tidak reset saat render
+            state.kopMengetahuiDraft = (state.kopMengetahuiName || '').toString();
+            state.kopMengetahuiPassDraft = '';
+            state.showKopNameSettings = true;
+            render();
+        }
+
+        function closeKopNameSettings() {
+            state.showKopNameSettings = false;
+            render();
+        }
+
+        async function saveKopNameFromModal() {
+            const newNameRaw = (state.kopMengetahuiDraft || document.getElementById('kopNameInput')?.value || '').trim();
+            const pass = (state.kopMengetahuiPassDraft || document.getElementById('kopNamePassword')?.value || '');
+
+            if (!newNameRaw) {
+                alert('NAMA PEJABAT WAJIB DIISI!');
+                return;
+            }
+
+            if (!pass) {
+                alert('MASUKKAN PASSWORD ADMIN UNTUK MELANJUTKAN!');
+                return;
+            }
+
+            if (!confirm('ANDA YAKIN UNTUK MENGGANTI NAMA PEJABAT PADA KOP SURAT INI ?')) return;
+
+            try {
+                state.loading = true;
+                render();
+
+                const verifyRes = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=verifyAdmin&username=admin&password=${encodeURIComponent(pass)}&t=${Date.now()}`);
+                const verifyData = await verifyRes.json();
+
+                if (!verifyData.success) {
+                    alert('PASSWORD ADMIN SALAH!');
+                    return;
+                }
+
+                // optimistic
+                state.kopMengetahuiName = newNameRaw;
+                state.showKopNameSettings = false;
+                render();
+
+                await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'setKopMengetahuiName',
+                        name: newNameRaw,
+                        adminName: state.adminUsername
+                    })
+                });
+
+                setTimeout(() => fetchKopMengetahuiName(false), 1200);
+                alert('NAMA PEJABAT BERHASIL DIUPDATE!');
+
+            } catch (e) {
+                console.error('saveKopNameFromModal error:', e);
+                alert('GAGAL MENYIMPAN NAMA PEJABAT!');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+
+        // =====================================================
+        // ADMIN SETTINGS HUB (SATU TOMBOL)
+        // =====================================================
+        function openAdminSettings() {
+            if (!state.isAdminLoggedIn) {
+                alert('ANDA HARUS LOGIN SEBAGAI ADMIN!');
+                return;
+            }
+            state.showAdminSettings = true;
+            render();
+        }
+
+        function closeAdminSettings() {
+            state.showAdminSettings = false;
+            render();
+        }
+
+        function openAdminWaSettings() {
+            if (!state.isAdminLoggedIn) {
+                alert('ANDA HARUS LOGIN SEBAGAI ADMIN!');
+                return;
+            }
+            // set draft agar tidak reset saat render
+            state.adminWaDraft = (state.adminWa || CONFIG.ADMIN_WA || '').toString().trim();
+            state.adminWaPassDraft = '';
+            state.showAdminWaSettings = true;
+            render();
+        }
+
+        function closeAdminWaSettings() {
+            state.showAdminWaSettings = false;
+            render();
+        }
+
+        async function saveAdminWaFromModal() {
+            const newWaRaw = (state.adminWaDraft || document.getElementById('adminWaInput')?.value || '').trim();
+            const pass = (state.adminWaPassDraft || document.getElementById('adminWaPassword')?.value || '');
+
+            if (!newWaRaw) {
+                alert('NO WHATSAPP WAJIB DIISI!');
+                return;
+            }
+
+            // Normalisasi: ambil digit saja
+            const newWa = newWaRaw.replace(/[^0-9]/g, '');
+
+            // Validasi basic
+            if (newWa.length < 10 || !newWa.startsWith('62')) {
+                alert('FORMAT NO WHATSAPP TIDAK VALID! GUNAKAN 62XXXXXXXXXXX');
+                return;
+            }
+
+            if (!pass) {
+                alert('MASUKKAN PASSWORD ADMIN UNTUK MELANJUTKAN!');
+                return;
+            }
+
+            if (!confirm('ANDA YAKIN UNTUK MENGGANTI NOMOR WHATSAPP ADMIN ?')) return;
+
+            // Verifikasi password admin
+            try {
+                state.loading = true;
+                render();
+
+                const verifyRes = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=verifyAdmin&username=admin&password=${encodeURIComponent(pass)}&t=${Date.now()}`);
+                const verifyData = await verifyRes.json();
+
+                if (!verifyData.success) {
+                    alert('PASSWORD ADMIN SALAH!');
+                    return;
+                }
+
+                // Optimistic update
+                state.adminWa = newWa;
+                state.showAdminWaSettings = false;
+                render();
+
+                // Simpan ke server
+                await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'setAdminWa',
+                        adminWa: newWa,
+                        adminName: state.adminUsername
+                    })
+                });
+
+                // Re-fetch agar sinkron
+                setTimeout(() => fetchAdminWa(false), 1200);
+
+                alert('NO WHATSAPP ADMIN BERHASIL DIUPDATE!');
+
+            } catch (e) {
+                console.error('saveAdminWaFromModal error:', e);
+                alert('GAGAL MENYIMPAN NO WHATSAPP ADMIN!');
+            } finally {
+                state.loading = false;
+                render();
+            }
+        }
+
+        function renderMaintenancePage() {
+            const adminWa = (state.adminWa || CONFIG.ADMIN_WA || '').toString().trim();
+            const waLink = adminWa
+                ? `https://wa.me/${adminWa}?text=${encodeURIComponent('HALO ADMIN, SAYA INGIN BERTANYA TENTANG SISTEM IZIN CUTI.')}`
+                : '';
+
+            return `
+                <div class="max-w-3xl mx-auto p-3 sm:p-4 md:p-10">
+                    <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-10 text-center">
+                        <div class="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-5 border border-red-200">
+                            <span class="text-4xl">🚫</span>
+                        </div>
+                        <h1 class="text-xl sm:text-2xl md:text-3xl font-extrabold text-gray-800 mb-3">MOHON MAAF ATAS KETIDAKNYAMANANNYA</h1>
+                        <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 sm:p-5 mb-5">
+                            <p class="text-gray-800 font-bold text-base sm:text-lg">WEBSITE INI SEDANG NONAKTIF</p>
+                            <p class="text-gray-600 text-sm sm:text-base mt-1">SILAKAN COBA LAGI DI WAKTU LAIN</p>
+                        </div>
+                        <p class="text-gray-600 text-sm sm:text-base mb-6">BILAMANA ADA PERTANYAAN, SILAKAN HUBUNGI ADMIN. TERIMA KASIH.</p>
+
+                        <div class="flex flex-col sm:flex-row gap-2 justify-center">
+                            ${waLink ? `
+                                <a href="${waLink}" target="_blank" class="px-4 py-3 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition-colors shadow">
+                                    📱 HUBUNGI ADMIN (WHATSAPP)
+                                </a>
+                            ` : `
+                                <button onclick="alert('NO WHATSAPP ADMIN BELUM DIISI DI CONFIG.ADMIN_WA');" class="px-4 py-3 bg-gray-200 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-300 transition-colors">
+                                    📱 HUBUNGI ADMIN
+                                </button>
+                            `}
+                            <button onclick="showAdminLogin()" class="px-4 py-3 bg-slate-700 text-white rounded-lg font-bold text-sm hover:bg-slate-800 transition-colors shadow">
+                                🔐 LOGIN ADMIN
+                            </button>
+                        </div>
+
+                        <div class="mt-8 pt-6 border-t text-xs text-gray-400">
+                            SISTEM IZIN CUTI ONLINE • KPU BC TANJUNG PRIOK
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // =====================================================
+        // PRINT OUT (HANYA UNTUK STATUS DISETUJUI)
+        // =====================================================
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"]/g, (c) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;'
+            }[c]));
+        }
+
+        // LOGO BEA CUKAI (PNG BASE64) UNTUK PRINT (LEBIH TAJAM DARI SVG HASIL KONVERSI)
+        const BEA_CUKAI_LOGO_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOwAAADVCAMAAABjeOxDAAAAkFBMVEX///8AAAB3d3cxMTEWFhb5+fnt7e38/PykpKTIyMjd3d3w8PDa2trq6ur09PTW1taPj49UVFS6urrk5OTOzs6dnZ2/v7+FhYXFxcWysrJaWlpubm56enooKCiqqqpnZ2dMTExCQkKSkpKBgYFqamo/Pz8jIyMvLy84ODhJSUkTExMdHR1YWFkTFBVQUVMAAAXIQpbOAAAgAElEQVR4nN1dB3vayhLVCFQQqKBeQALRwXH+/797O7OrLmHiOHHum+/eGGOQtsyeOVN2JUnfIWX5Lbf9DjEgyM/Gd7fi74iOHVXPh+9ux18Q9RrxFw6o39uSPy8uLKqXBujf2ZI/Ltq60NgP83o38dfD9v94ckM+rTowoVldQPi9Lfpzsj7hv9YaSE4e/lasle9t1J8RGxL84WJH4xj/dfH3xfz/cHI3ewt/FKyTN7ZgFXyR4lvWbfPNTftq8cDBH/6cdTHnb4U4ubSGk7n9fS37eikvuEA1mXVvXwOwume/yvjKemTf1rSvFu8c4A/jyjrntP9AsOzjq+DsfUfLvl5yIC11WMf6jFg9szdpVj34f/ANlBNpqoHdioZ/juohKOE/b4QSPq15jUZ9MWbsLzSrwjb9d6VYIz1cIhRl2sRnNuyPsyW+yk7W32vaV0vMeQNNazz9MR8qg/QfnlxOBYk+rJdPP5mxj+zQJilvxX9y5a6ADE5YE8Nn4tafCu9PdOBfleiKXhxN6+yFlUjuAff/Zv81+mjcOcCiwQle+0qCk0tOQQ6rP9eyr5eAm84Da/71ZWrkIcOiyJS6HbHI/6ioF2qrB1XjX5UAv0F2OfqvBKhcQXdZw3/VnfFOFc8yXtX+bxVtV+AP7/Kr08oFNf9MAaqI//iXRUQPg0l6+JHYjwrTFh9brO+V9Y3oIdmRz1K/ogpQacX6H6aPPmd7yQf08COhABVdyb//qwEqTb4hKVSQ++1/a71pxDBxVpe7Sf/hW8U4E4+I702Y6fMS1pMrsP3fEocHVmhan7P+l4R7hfhK4XGqf0g8Tg9X236Y6fPS+Psl/FMBqlaYaftliVdzW02uOf+iAfwCsa7kpxjwddPKBQcPaPA28I8YIRFmwrjo/VM8YlooTEfjZ/8+6H2BaGmKP0xktfLXmwmMq5/Ijm323+4bxJUL+ko84jPit/Kb3xygSt8wZGSlVZbqT0idNFHS9BsDVPaDFpJbM4A/I0mtNvH3Ja83J1pFOK2zPzrkyhtqDt5CvX5PgMpsZSH/uKPdTK7+HQEqQWs2NVr+WSG0p1m1/nr00TzTtFKY6S8Fx5oAlQN/NYYhXJES6eFfy5qbmALboCk35n8vQGXdjvjDuPy9aeWC+c0Z0cfo8Zd8g1b08HfiEZ+RFVT5Tf/vBKh2O7IBO3RJ/r6NR3/5ghZPy3Z/3Dfw7y9lIf+cxHV+0/9c+PJl0Y5XHE7liNVM3+V0YYCKZtXiIeo/JAYve4n/MD38SJr7/8EAVTQn+3asQn/PpPw9npPIbYuW9LpE+c0j+ZPz42/dZ0o8TgpXjwoQO6L31s9v1RJrh2vZRoQZ7HvdTeoAVQB/oABfJE2j0Sxk0je45m+EBM0UZr4U/WgY9/6s9+k35Td5gGr71QGq5YUI6aoOk3RkDTF0C/IcgM/eygOHWzTjuufvKPCQDHjrfQ7t/Jkm4ABfELttREwrGpzHEBLWZ6a2u/Y7FgSf9YRUxhY01Ez2P4/4sKs5YzlMb1sxuNX86wJUSppSsQPGrQ/DMBP2lS2r9lsJMKD83M1QRa6M8CeshxpfjzYpkwEDFo4u143nN09fFKAS9SuNS9kVnXpVdPp2P7CGfg6imB93zHzwYcV8m4IWh8svpd8HH6YAlTCHX0IfM8pC8jDTCD00uYan7XE3cUaiT7mdix9zBzDupEuR43CYS4Q1HVsZdfRRK95+O7Zpz5ti99GxSzmLSdoBBBqAkiZi9Yuc0j8bSAYXoDHtTVOa0qPobILas+75sk3L4t/lrzLRQwoznQbTGme4kjzRkJbWUmcjQu301vuSlWRrhum3dRSPzcTip4SjZ7B/zB/SlXohg/gko00WbHvfUOrQpnX9nRSYWblTo2EmFc3LgQMmG9Y20UB7T+U9fs8E+TfWMCdkkjFDmY2gCi/EXbK5VGyFJz3qa+g3Kb/dBj1q0CQfgtirEjRhpttIIOQRsUtXV1/CunpfUaR1xtetCet2FbF5hbSxXJo7h+G6vrcWS3SlH3VnlyCBaw75sHmrA1Snz23xM+88zHSfiEeUIEVHv2qHCtfqD0yZElgiSPuQGS025w8qyUMYJKwSkA9GKiu6y5Yj4cAKav57j9jYBSNGDRnAnAbhUwGqhE8r8pTLGKm32ADbEFUDqcBcvDKxIgiKvcP+zDSu6exijEKeu7210iPEEf4XpRc4k1b4UHtyDr0c44fqtso1edtfpTPWnlfuD/Yw1EJLZ9ZE6GcVZyOmuLqzv2DnrLqz6ihd1h6deVpHC/b7TLJTRhtXB+pl2Sj7glQ4HC2wd2rWfvi1CqqEq4Q+Xc20Im3RG53ZCuDXGFPEgXrsQwRRv565awWjvZZ2kO1mS6Wl6JJdWnEiLS74ntz4zgs+Mo9RI0j+GM9vzl/3trX0nSpVGq9xKBn3OJoSw0iYYRsYMvs4/CcG1Mq5Mj2MEu351ggOMM6FX6f021Nb5LhySnaJK9OIgpp+bTrL78oN7oigp70lBZP3L4bHFq1i96kojyXM67m2ro5YWcGJc0cFgwnKrZ5Y55zSliUMEPqkdBdP0thKu7aTVfmWfdHbhmBuGIWiPinQLHvRHm3Kh13UASr7tQBVsaVBoUjPpOvkCuwNagwOhO0JCmxfwkb/HDADKDliatnqt0o4uHBk/mrAXlln8K+wijuhgByKqGQKk0rLc3on9LPgXqnPoppRecqF1TD6yMuxXghQGXeaqyaGNy47MaNm7UraAmnIL8hklQE1M1mKdNlVnV1vsAoTNhsMAFwOG2Q+18Nh2+6snsmIPjemW6coIaVNrvVakSuIe+JStSuoPphcUQpKFWZPnCal7mOtx/6Dt0nFOzn7jHkt2AnGSGjVJ7BP1+uUybr94439u2/R6uSiIfQemPJH0pFsiL6bVX+t6YTypBxZJaihrRjbZ1v8hINs30fDTC1Z1N5WrcfK/MybcmANcdIZWwQSISnvrPDDR6UVqVS5VaERtzjUF8W5umszn1uEFe88jp5N7eSTAJXO/zQeZhLiUTedesgaPYZ3NlJLRdJmbC1uIMQr7Nk9QVixTa6PSt6aWc187B+On8USm7k9J06XTbX4smaiMlSo01RBM9EDMs7mdXx1q1f6qo1UZJpgXgh004akVKuXed0Rn0CNqe6COLOMWCxMEkxLzapZ8+FNe7/H98vPfRX7gKhqb4sU5zucFGOy9C2o84uH7QjDEA4Dfuo+7Tq44KGlaGlHUq2odTTHCUQ7whgjzpaBv4ipnzKNElrgSjkMkPxIShJJDthAnS78PUcw85YWS+GO/WpIb5OLzZtVc7Y690MmVko7pSjM9CzCcA1Yf612Z2usKpCgs7EqTFo1B3IV2PjfRUs3/mJU4lvN/jxGskopMaWNIqWx9BMH3T9tBF/KWhppg4IO9OJJoAudNV4JHM06JlSgdLO1ZkJURBv5rrbvsRYDl+UMmfI7I20OWfelNHPqemsC+OuotCIgHnlKPzWmzha7KkFuIFdeYQdsoMCjEbRn/ivh7LAAXyZIbWpSJiV4x3/nneiaK/Q4KbcLpnQKs3TzJZvwSGLgEFTs35oOiGU1McEdw/c4kINCl4ViSJF+4Z3tzKImLNrxqdHAyaWNY1Ja4UK72P2DEF3BTVMn/GAJm5fIck6OHzMMKfJBjWEMuzSHFQ1ke6mOyDK+1lbJ+3k9Zuj2aRKYJ35dCMXNjm1creKq5XOa1FRoieM/RJgJp/XD7aviFkHHCd1xpmXfkCnuULs81kELkmKba2ye+brIp9G4hkvvYeCVNweMejm8k4yciHu3veqzABZ7Lj2VpvbOwh3a9ybM9HGgtyIu613rzYT7L0vwd9hPHOs105pZqUfo9ojLvr9NkB6vuS9bszhwDjMosp3ThKtg8s52tNipfvE/6Gw3QCUdUMsO8NIehmqQuytQcLclEG75MAslVL1ZuT8wXrVN+ard7exRYZ6A3lyJ7CZOoSGI6GJrcy3PWqvTb5Th421sPJHBXnip5CMtyV4re2mUJmkrssDjMzepFNoEA70tdQV3KedujzGpxa3YqHyzbEEBxeTlcsg728JirRXqfCWnpfN8X8SmFS8av6LDCOb1y+y9eVv4IA8PcfNdkRQvmRE30eYFaQ9KAok1BlCW3LQ3Zl7u+lFAYQeZIEeFHuSte5DIreF5pbMuZ8q42jb4Aprg4Gud1VqegsWxY+1nAaIubwTFyZEuCB6dg6EpI9LaLatAsHakKJNuwKj0kVB8528ITW8NFi9a8UPvlfMe3sh6GNgODxGlhFcikP6jed2+5ZrWgJMgIonaYHJjEfVrndtNqXGtk+FJMiOsKcg8aXPNaaWAlWJnm7gdpkNbLTpLH4rFtdgh3oRKYbxUWaq14UCu3UxBfJ0AEXMXXHD9b0sRlJMr/YPUHxN3tqsuEzNFCxP2ZdmV3iTpp0Fh8flS6lDrXeM3CDR2n1e7uTy6xK9AXT5/pMcqDm1nhdxrzeIxoSRDOGYQjKHv8oydXTKWKLJNy6nClqjuB9KT4PrTWLLWGdy19S/8nu/1oulAoxQxwL9+ME8pafGCLy9SZucjPd5jPVsnT9bKDq+x3/ae8R4pQvA8Qc5UeAUpBssO/GPylBrX1wzhxozqarYP2aWMLZqLIKPkj1L7ckqX5GXBCo7o702Lwo8mysRYo8O/+kCPFVjc7+za7fdq086x0r9LjwUDdmzXKU0xK0NZOHHhCMox311uZjy+ydiVG1sfc1GUEekmrsqkRsZdN9KCSIa6/kSCthYjsrB/7jB78g0JeUwBm25wBZrkx4qulzEzccU1ZYAaQUFmuRAmvJjg7NfawodXC3uG8FvsQjLP4K/wIjUWB9CJxCyJ+SpPOzvjWlwNkofXLeFptRiFsvNeArJRZMJjUJAdm3Shu84MCLYzhRudU8dM+2k9IqcGZ5nvjkspYP1xpA2xX1gmmxYWe7027vnae+bomRyLj3Wk8WERHj/L9umiuqE7PXll5ggtwVzscFyY6yoz7TJxSgswfA59NlzlEbm2xo/7DDxBS91i+hQ4LSyeddNFe7GUr09S7gEHheYuJerxGZ6Rat7ZahdEczuh1xrqcbFAOA7BXAbOHm7qPWJ9XVXpnolY76qFrm7NL5Y/aGL9rXRgK35XVg3vfPVaGZDrkwDxDHBpLJpJ8nYS4fETbciFznuwb7+tVoENjNEXzHm10K/G8Tavs5NDcTfRSwN2zohsm1VooU6UwXtsR4KH5bL0ZksiAc90ox2rMGe1sTxNz6zHc13HlinGRKjx1BnQqwVuXjsGuVJkXNN6Kc3YbeFOTWXEpTxSKFIkQE5wnQ3k2iweFfaMod+PNsDtbhNJLHTpYku5uGNnDZmtVP+T/bUB8Vbp0m4yku39sxI8veEt146PX1QtMSRXpiA+xPEdQTKAAy4XVxhSa1xxgtoI6EdJdyXZk7bsPzghrL37EuvInjsph3bz2uvpGRrPAK2W3158y51EWDuNx+0Y2749koowoxljtWtJP/BIMuso02fcbOqyVrlIgrTHNXQHkjQ1BMFGshKDDftGkeYKQQosWUeEFtvtu3aQ0pvurMlTG0Vn6rEsfPkMjzsX3LTZVsh/YbxYnVM8IcK5iiFmhgmYq4ZVeU0t1VDqaMtihoN0YuO69Wwy7BYgYUhOfFBbebakg5Numy13Rad8p9WF3hybs3+Gx50QUNmGiuIkPsBmAZu4ItDK9uWDuUCph9yJJr9nN6rr1lMUQKKCJusn96AzxssGPj5hbntHQ5W2gDHprohouvxpBuioJV2DaeEK1p/h8azDSct22Txv78GxMSroYdwjRLybF2+EXjqcSVXXj3jVF0NvJix4O59cNps7ybvGhB+MGYc/eQQpbDlccq+ZF3YJdbTDNsfiXQ/A9t60HptHC/vSeS9s9XZFs45xLIYsOOUOXFwqXzHplySh0II1qsUNSQ029LkLw7MfFwdxfKNLui65j4uqtZS46PUVY2AB9CvpSCJaJQMAo5m+TeAxMtC4VxPa3oQezdmvzCAefeEqGBl1BPsqs2n2qbP6WP4wbmAneFewF9jLG2fSd1864LSyrjTx4aIfnPDv/v0e7KURAVqYeT+TRxQ8n4iSM4dtFvfLs+ymPEm6v5FnwTyKIJJcUlrN3+LffVRplzqbsJdaT9oZVIGB2PnlksaATVlBBsJvuXjQT8oe0GELxqLlQov3AzOMkVSmx6MRdtagcri5ZXWvP5zzFZUHkr/H0BpvBI4fMQpBK2ZjatwiMut0Ial8SKnkEnvPsxdV1I4thUG96AFkDKyPOagHzDhJ1lDDc9QbxivGAlhygDuGBg6vVh2DJCJuUrhBe8xs2xrHEqdDQ0ax4mkzdYShWbeK2yjy5irvrj8g3zjxltqHHsRP0Z4z9xGgv7MlhyvN/WxMJe/EbZNhbYiCqpaMJ/FkYuXhYEOaMue67QgoNNboXqiQX6Fg2nk6s84qde2hN1KRotU5slvEODQzrD64kSi/0jeNt5Kgx+H3tl2w4aiuOYYHNg8Qj20tQ5ahjetxyC0pg5hbV/2VI2lCdSfzQu4Wa4C9Z6sfS0jAiKAKMY8GZqrxu3gS68lBWgTotaaoZ5kuqdXEW5TN7CKNeqx1xRusZImwmK0uZQy6YuJVo3jcXGoDclfPM6bBDbtiLzJXynAWHNYNLASAvSuFfPhvF9foitfs15nZkuHubSksLJ1xf7zEzZdW6+bS/V2kJbzVbUlOI80Gskf5WGmfhoPojuNxQ5/MfW/pZuCvdtUvPy1Jl5k5WVFvFcbnOapydbkPtUarFXO/YYMWraXr245h0hWHh62RuC4DOPda5sK9pbm7kZiPzSu5HqOpSawPkMb1OG3pz2LeXboJNOWmDDv9G8bD0WCy5V8SSpfAxz0cU+NqXexhsV0wQD5KM2O5xolFzdWrkdUecitCjx3pgMuYk8ex2Bw1wFKI9KkYxWO37Q9iNKl1bQ3K+q/MKqJ7pGG6RmLOrHOlvmYcxxbg9PyeMK1Z4NWFlOcZ8jdOW8N9qwYpLqRzrY/WGsrOGk16jAeFWWTsZzBRpydSXCN63HOPLbZ063D5Rpaq09O1K1bSmJLi5HjSAuRnKiNJLN5ZeYgHRq0ls1Xm8difDSp1FsFYPglFO9voE/C7RFD0EpX7ESsbciyeSgYdbcLjsXlf9+ybd6uW7pJdLect0s5IyWces7ShtLSWDqozuQy8syY8tl25wK664jWnXWHMIhs+zwPL7GIn741mhqjyXFS5nPvuCn7e6CdqM8JibyrRQWhQwCALaKtMOfuLYlFVzKGiUXWdlAbxgbiMKZbiGhlGjmjOQQK2ZSf+VEaN4dRbecgZQQTu+rubaKklvlCikmrShpoHxWG4+jgWl5Nl1jig4bAaNYZ7+RjiVg43g0wNTm+C2/9wZUl6xHpYIH7godsO+ZNcAZXhSSlO1UZzdYHt4rBRlpZ05Kk5NugaxgLy1ZXvsHQzpRipqUxOcJfdfmddDmHTkX9i3UM9NmAR3WE3jFdu2MTwObSua/MYSsaVSB5z4TesVTKDjX3U2iB5BjnrSFFVmOVwhpUNegk/K4Q2gJJ4TEf34s7+yDGd/oaRfYP8/F5fiDF409U0tkw9GOgx+morh5mYfozKe4cKTt0TcM/R4vEKFzY71lHWUL+OAx5gl3ak2lggMWS7KdKJU+s96RZzKSSD6bb1s+7YvacZHmtTxq1tP7micBsaPClhw3VjD0sO3vjM2BjW7XHQpvAQVU6jKBnfwLSg+N1OLhrLfRp4AtWcs/XpqqtEsnUkTRRUYs6iFB/brnfQiRotGQO/VViu9WOFIdfiEZNUC9ZYSPOBHjfgsdjDPmlPvFbbDhMVaa7SZNLKol0b73fKWLq0otJ7GbRFP1T4EAUIZzpb3QH7qI7Yj0kyTPRoVWdX932NTRqz0Nuk0em4b9WO5Pd6z7b/r6iMGwb1Ni1ksZI5pI1yHI6VU+/hEJ1WlDd3sZ82wuGOAj1LHknxhgRKXOYGSn7TwGZkWhXpqxP7SoklzEIzmD9fWVo7g3vQSSc/+rgF5Gptnu67pIjyEI83nXCWxzx5kWHWQAt/0CuV6oPTmGdKStRPNE584jdcXQcby1aVv3RL12w94FbNEjdL0JUtDvX6AWt7GRTEnBWabDI2PaWNJ7D4aS5Tiih7PNBjq+8u2hgLYWMbrkXlvAnuDXewsOVOhW6MiaV1PM0BbjmZknaqb/366PFTjClYLHpdgUzaSkt1vWCdNqW3jYjPvvnBGdIRQ9tHmRNpsf+8shHdb/QD+xRiM6BVSrhmqwZjGFJwN6VtQLU0usPtBaCvVvF8B8KAs/iBFlfJ7UuyUJCG4n4G7h676AXPLRW1zISMLyQ2avmI41r0W6dyLJY/2D2M+mCP7L8bK7lW9Vm1JznDeTicFIRPbOwc22jJB6D6VFdyCOI8NgadcFtdqODwOWC6YmmcguSoy7DmN/gheNBmtOJ/A77eZZD5K1os9HgOvfKiOM/H91ivRSt4KWwAJxzjvS8VzP0sVRyGFfnc5Zl39qCajairXdUcD45HL6RZU/mdsqQF9VVd5W6439MMKWzbXWYnQj7/o4dZrVCxov6XaQdi6g9L5wIx1C7/qVAu9lBiNDAnP/fh7HbsLeammg4/B20kKMO4NAQhrOXTBRxBCJHtG5XJEzFGqVfRYyfMwpwzd6l251DlQUv5w/Nt8Gt2f1uPB5IRbrYAb7nXwb1YhCnjCq4RFxgcG9gslwEdL9Xw2T8Ixec3r5P8ePAxiiLppEozjZm4JQgfE8F4kbauKnEGWfVnEa0ZkJYrMnx6N1oq8jgP6SMJ8FY8q9keAsJ6ZeEwiL06cd1hRTTDq6gpdtKe4QYVGqOSak5WbOla+KL3lDRzzn93cim0pUBSIyyii98kETFPBOOyxdUP/PeVjqG7jdtM86zrz+5Ji+2Pd4SrRNX6Ka6swSc7ydiCLBKTunkTi7aiFnuDx1OIVuD+GcZQSoTGGZYj+T0tvvNRcxy8JYYVS9uWfJxPGXucis6+cxJjgGL5JVuPM8fuOAR218yqHGCzF44TwpC72cdjo0uqrDjYMX/RWWBYgbdXtIt2SGFHdYiY2QE6jzlB7rQkVV5Yy1qsKvtTguXhiSOn4AdbZidHFMu4Z46Tm61nu0E2PwMbsSwZ9uHYVZj8VS0Wenzt4/Fp6Ed6eXEHeJwfWeAufAjooBKCthyVO2TKlG0fd0QaDx2fa8mMRPcKAqDKS7HH8vNUyh1jjqp1zXDErXNRFDO4bt+KKIiX0sSpG36PFpxoEbqvlIurqEAB9Bxtf/yc7GWQSmqsR1kGO7iu052MSVpsqwJH000S+YEDvMZIA3PjmIJdmqDMrPL9nDw94frHfPsDazKLO7c7ReDbnqRUTt5jPJ507nZLYHH60lljM3VEj2mPw4gYAjCXjCF7tr0JiD0uGaeIYB7EGruSTmSC6L0JR7upvo1vIo7glAtsGXb4p3biEVgN9whk3G2vgpnjA/7eCzOJGqePGAUXHYnmtZ8asMZPNVgJpiaUBuO8iC02hhQLZhzOLps0ohT7B3qZHYXLBZYHO/pBp44wx59OjcCCZWnH1+cbn6TxQhGnH2vgvtRLWoz+i1RXwbVkOdpbVbRXlC0k+JmCAsBuwRDcw/2pPpLBAxGCcxeNhXEwW/fa0/YAlQx95cqKH9mw/Zp5A33TeX/FtXj94tFuQo87ELcschnkkZLkK3cHDW4KVYLA4qqx3hY0jd4ezs5xIc4KyO5BXktUu5J6FTL03uG+XTKWSX85cG8mB/L9W8ceGIbNfP/rCTO+6XreMagRafHzStWWUM6hr8f7fcRN40aW49BnhJ6/v6IuLUtumDe8lc5Pm/a2oFniHntGuqZ1E0XXmvjEcHHyIMKjZjMM+RISbLYJrBV2oVUG2/c3COPYzeSN8Jc2shvHdNNuJoTXxLuvHr2l4hILeuc25AhQqueFgR6d8OAauO3f9SBQA7idfj5Kmy0d1r+QdwdVSWNLtjSJENdlygdY72rZt+5QZIFzuyQnptA5u8SPeBHBXsOa+JyMseqxBs32JzahttfV0G4FqKgSf7Zjvyv4Saunx1YXWzRJDWM9k9Fp9YlMxVTVjQ+xcHzmBEVsvJv9d9XYh3DbVHJ4NOiqMkunzK9w0Fw4LlEX1xFHpVNF/oOpSvd7r7ydvvC0UrwjLn497enxesphqg6A9EVq2C7pzBBv/VhYTCENU7JOVbey9jVbSp3dJGsLWRwAZnwYmLd4r/Ax0okMVdhtJt+hlLx+gJxGn+/h8Wpqc5QsyNWlAUWfVqvxds/jHVIrs/L9XdhEtbzVHDQEt4T95v1HQIOidpY2V3ZzCnG6AbMVDwS/rsVsFE0KM3fnMpogmyIvX7ZZx4G/t3R+vB23sDGPYqQ0gFO1JfrEw4aapPF9eldnVV2wA6+0i9OaOCJEe3S3LUSkxerrWiyw7K1fcjR1JCiv/On6+4cq4b1yEGLvOHAW9qP1KZ0KdwqMNJyisNabpJfbV+EQyFN7Ux7Q/x21Uv+lYxCJg/TP0bEmewty+da766H5suoebj8AdhvU5yipxN09+Adh01og8aWDhKoqHfd6kI+z4tW8d3z1gmPx+ZfOE02p5A96x4ZY8BhfC0YYLu49PXM7R9di6gQhuWgTKPKF5cOy/DGX88VqtciPDNCa9Kvm8M+dLttH4ThRicS66Z11GOT0ZIpnqv0T/J5LSH7D4IQ1LYNSvKUwf1TFCXLStEjr9jf6E2T2DjI99n23TOGW820L7ebxpx9QJnsZlvLbWi7xeMJ6A5YCBRvzZQKFYfuYzy3mjwcnnAW7KXMh9X6mjWPxVGnBhGhCj3upXNVjQ5fJj/N5S/fEs3Ay7PFK2c98RdJW122lcFTVHJdylkW5T9VSiACXt2ZL9KPpbFvqDVhVldOys5zQ+w1VsP8AAAnXSURBVPdyds+oyB49zBT7gC+/eHDqGy856Pl17J2AjTBqU48ml1WcuhBtXw1MBb3RqZihlZUPkk/iRJ6o3o+cTJzCY/b3D2aEqeaTQ3tGxUX0Xw/0ePysOKldmyPYUjLgIA9ci8652h+9tLkdzwdxMXEKR3NJY8LG9osh2Vxg5EH/5TNi0biNpLg65xi071tbqZDbuHJgK06ojMzTExukNXE0vjP4IN8QaTTZ2IGmc4n62dcFD8P+GjyhbGgrIex6bysTx8y3opF88tPB56iIQW1pMY8wrAeBJd5Zt+6h9hPWI3uyFoMSDZnKSH5ZiyU8voe+3Y+EuGP1n8H5RxMb+THR2RL11YBEHKjji306w8MX3qmzC+ys+cP1sEI/n0Pea4kxPJOA28pnpQVTgjqyGHlewKB0aynD+0KKtrHBc3W8RFgfxDXinSSJukYSfnbMalgJwIeTq7Et7zP6hp3CoT3MI30NuRaPFah+JBuKWvXxmMl63r5pfIKIMNHP1iVtVuJqPERQvhmpxSr4ppFBrEVQfq0PtUsHHvWklSNnTXAstn9di5HzSMTlhhG9Y113pQSw7U99zIfHGiLoO37tnK48khXH0uHu80CQ0pHzBt0rkF+0OI9sLrM4Fh8+dV43Zf1Gd4cnsEfV8jKsx+zLSfT+McCUGGGyWRfpjv0jD73kikKoYz6lwe7JPJtyRFUTocXDv7wg4rSOUSDX4VHeoRxpTX3gTTJcAJh/ckRg5v2Kk5MP7XZS5yKi0b06SjAftwg7wuLV5x5+Qnq8GZYcoFg6nEZBT6sjMMoQtj28Vl2Fa/c2EwppGbH7ROzXH9alkRZTbvmTT87DOVqM6vESHhMHPZwatUwug7/2z1wLhj6j3MaX++ihAGb16IiOJHyT6IdnJk2ITHUJo3rsbcef5vi+a/1yGQLmufstfTB1XT6q3YdLWjmMBy12FDNbffYMdqIiQb/kQAjzJQfLTX10HmftNTbVMu04CZwDXBtvEB7p9hqVSeib9RCs+uCcQtK5zUqGwyg9t3h+YfPpE9ivGsW4xw+YMI9w6Kw4NerbvhBUL9YP72f4MUtlR2f9sg3VsixGjZeW5Rn+ws3LTXH6Aed1pPuqN4QefwdpvqKDpjwXz5qdOHpNaPErSdlxKekYJRiuPS5Ldu+DazBOr5hxuYVNrx14gNpJDsLVC0GS5coNigvry8hnE/k+p2TEmz6dwOGbJu3PPw2xOj1pev+8HbzNeTbCGVh5DfRffQyXphYT/If5hE9ZoMUPxxyx+y8LQpv32edyNoXCiufHSRltit31x496yc5n6+zg5KFvWE0/lF/3z0iEFn+OUXChYM55nFe0RLPHptAH5rHo8g7PRV+vd5i3s82OhOwteb3GzNFlnQXJwlsG2zGd9z+kgGfS4vB3nulJNcTB81NnKPLT4TqaEUYYDH6coDgki5cSpYtFvDngYWA4NFngLjuQy95+XjQgDov5HS3mdtF7flasFMGiyS2tguKEIWI9/uyTRC0zztMbnuCd18O0dsa8nJbw2jLtd7RY6PHl6QOz1uCJ/L8dMGXaHRZf8lCk1QInehfQXNm47fAZcvAmxp978EclJt9f9kSPcR83br3wmR0q8i9+dqiXF3jVJVbYjTx2qvnc2Nkbvy53flrHpB7TTrIFMK9rpOb5SwT15YrEfyqxJhGsYD8/zyi40B7q3bQeRzv6dxNOW0HPQyIWkHIf32G9Qq4Zs9mQpQ2bj81NfGpa+82ANGtav7jBcH/3EbwK4vGTU2dmT56yoZQuptUAKVjGk2K7t5ANnIZRyxWAuZMxo4Q8DQ+xuHvPY76bqcOMBRVIf/vpyviUCGtaj2ejoxCs8ZyzEGNCu73l4EOMzhRF3G2Y+ddcKMBi1uK03mBZAHo2LrgGHHEEVPYJZTnI4khUxzwunORprxwK+lw+0GO556QZuwCXUFqAi7G1gBmmLZvZEAIyhKyzITAe+4CNh0WcBwkuOwxzuXDHLYV7DK2UQHHCCKKuZk8+GZXT9/z3HyRNepxM6nFVlSopCSMXKtY1W9LbSXKdQLqv97CM4MBmjHGMC4LMbp3PwYAiWMMKrBtEJexpN1oICRTsari9b818aIv9e8AhNjcVxCbj1Xw1Fs++4BnheAqNNX160lF42xFsNDYdmy2k0tuVrcr3JdWwucAmOoOjRsc872GbGS5z/P0iT5cMo3BXDaYGZMBH6+GR6SBd4XKhh5nFqcLWfFVhPXmG+IGfg/RsK9qrQoV6u/HTOnhviegwzZPvjgTbE4Q5HHymlGyij6DfNalM7Gej7vlUaugxhQ6xpAiiEMKQ6ZKGYyiCFU+eiM2DKV+gxUw/ccSSJ2ezF6TiFjOGbIoY3AAs2f9z28+xOuTX7oXb3/I0YZfR4M3GhX09Elz4kwu2CpOdvuRJ9zejDt2NC9+/f94wwMHshhf9/pOzvdDDHSf2BfiBmNaTxzbzAOjyk75hT6jS9DY8racResh9AVKZhl/2hHD1wsbN3mGpPVOc4276kzzVOHr2xq+LJk45mL4aHXZgfzJg+5EoDI6fHVDt85Zdf/uxnVxwG4VIak994umDGtpitPf1vOwelU/2XvF0FJ0v+BWyoI0j03jMNH0056BohhuGhyzL5As8lTf2mWMShu5SG71J8aT8hSca9S97FDuGosJnz8o49tikkQTXExrN3e5GDyVyTZ666/pglnjTpJOOb7sdhiqu1zTob2cpps2KSCHvfzW2Nym0HegJHndcTc3FfWObJH7pWW0DUeJFsNn39gPn09EDXhxgjObAPiW0XVGe1uO4iSzjUQrBb0WCSDSbechyrQcjyd5KOBY7X6bFdYprmsPwabDKO3y8tfFViQvYi5pFZypOXxWmfaa0YEoyimZNH+RdQun5+b45SuFrxNLvsNP9sH/SYkt4qZYxfYDor8tCPCBkkpHFKeOJXx2BQvHKDLbRpI0SRXjOl4aEBK/43NPM/6AILb6/+JjO14T2ib32gJC/KmnzWI+vE188WOEPKOrviHggQvQ8Y/HLgtj00YMV/r6IYvevcXgaoQeEPP41PV6TL/bFWiwuGL30oJu/J0r74TRfKRivMP4xPE76D0T4KqHD0P4xPE67j/X4OqkerPAP6bHXfTjNV8pcqTfi/iPSezjNV4rDHxDyJy79SeFbfP3Plnk9EwNr6KKnDwj5uyI2b/8JLea1//+SHovjJf6MqhEen/4dPeZaHL8c6/sloYPMdYD7/J+QBz9K43dLC6YEg1rq8zDh35X+w2m+Uijo7ow9O+p7BEOai/FHm/++jBzI/+1yevHsjU9c+R+iT1x+s8zrmXxJCvRLJfkzWIyiwPAhWd8rv0bV/weEvZtbsrWpCgAAAABJRU5ErkJggg==";
+
+        function beaCukaiLogoSvg() {
+            // Tetap gunakan nama fungsi lama agar kompatibel dengan kode print.
+            // Logo di-render sebagai IMG Base64 (lebih rapi untuk hasil print).
+            return `<img src="${BEA_CUKAI_LOGO_DATA_URL}" alt="LOGO BEA CUKAI" style="width:70px;height:70px;object-fit:contain;filter:grayscale(1) contrast(1.15);" />`;
+        }
+
+        function printLeaveRequest(req) {
+            if (!req || (req.status !== 'Disetujui' && req.status !== 'DISETUJUI')) {
+                alert('HANYA PENGAJUAN YANG DISETUJUI YANG BISA DICETAK!');
+                return;
+            }
+
+            const duration = calculateDuration(req.tanggalMulai, req.tanggalSelesai);
+            const printedAt = new Date();
+
+            const w = window.open('', '_blank');
+            if (!w) {
+                alert('POPUP DIBLOKIR. IZINKAN POPUP UNTUK CETAK.');
+                return;
+            }
+
+            w.document.write(`
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SURAT IZIN CUTI - ${escapeHtml(req.nama)}</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    body { font-family: 'Times New Roman', serif; color: #000; }
+    .kop { display: grid; grid-template-columns: 90px 1fr; gap: 12px; align-items: center; }
+    .kop h1, .kop h2, .kop h3, .kop h4, .kop p { margin: 0; }
+    .kop .lines { text-align: center; }
+    .kop .lines .l1 { font-size: 12pt; font-weight: 700; }
+    .kop .lines .l2 { font-size: 12pt; font-weight: 700; }
+    .kop .lines .l3 { font-size: 11pt; font-weight: 700; }
+    .kop .lines .l4 { font-size: 11pt; font-weight: 700; }
+    .kop .lines .l5 { font-size: 10pt; margin-top: 6px; }
+    .rule { margin: 12px 0 18px; font-weight: 700; letter-spacing: 0.5px; }
+    .title { text-align: center; margin: 14px 0 18px; }
+    .title .t { font-size: 13pt; font-weight: 700; text-decoration: underline; }
+    table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+    td { padding: 4px 0; vertical-align: top; }
+    td.label { width: 180px; font-weight: 700; }
+    td.sep { width: 14px; text-align: center; }
+    .status { margin: 18px 0 10px; padding: 10px; border: 2px solid #16a34a; background: #f0fdf4; text-align: center; font-weight: 700; }
+    .sign { display: grid; grid-template-columns: 1fr; gap: 24px; margin-top: 36px; justify-items: end; }
+    .sign .box { text-align: center; font-size: 11pt; }
+    .sign .space { height: 64px; }
+    .sign .name { font-weight: 700; text-decoration: underline; }
+    .footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #aaa; font-size: 9.5pt; color: #333; text-align: center; }
+    .no-print { margin-top: 18px; text-align: center; }
+    .btn { padding: 10px 18px; font-size: 12pt; font-weight: 700; background: #4F46E5; color: white; border: none; border-radius: 10px; cursor: pointer; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="kop">
+    <div class="logo">${beaCukaiLogoSvg()}</div>
+    <div class="lines">
+      <div class="l1">KEMENTERIAN KEUANGAN REPUBLIK INDONESIA</div>
+      <div class="l2">DIREKTORAT JENDRAL BEA DAN CUKAI</div>
+      <div class="l3">KANTOR PELAYANAN UTAMA BEA DAN CUKAI TIPE A</div>
+      <div class="l4">TANJUNG PRIOK</div>
+      <div class="l5">JALAN PABEAN NO. 01 TANJUNG PRIOK, JAKARTA UTARA<br>TELPON : (021) 4301249, FAKSIMILE (021) 43931827</div>
+    </div>
+  </div>
+
+  <div class="rule">══════════════════════════════════════════════════</div>
+
+  <div class="title"><div class="t">SURAT KETERANGAN IZIN CUTI</div></div>
+
+  <table>
+    <tr><td class="label">NAMA KARYAWAN</td><td class="sep">:</td><td>${escapeHtml(req.nama)}</td></tr>
+    <tr><td class="label">JABATAN</td><td class="sep">:</td><td>${escapeHtml(req.jabatan)}</td></tr>
+    <tr><td class="label">UNIT KERJA</td><td class="sep">:</td><td>${escapeHtml(req.unitKerja)}</td></tr>
+    <tr><td class="label">JENIS CUTI</td><td class="sep">:</td><td>${escapeHtml(req.jenisCuti)}</td></tr>
+    <tr><td class="label">ALASAN</td><td class="sep">:</td><td>${escapeHtml(req.alasan)}</td></tr>
+    <tr><td class="label">TANGGAL MULAI</td><td class="sep">:</td><td>${escapeHtml(formatDateInput(req.tanggalMulai))}</td></tr>
+    <tr><td class="label">TANGGAL SELESAI</td><td class="sep">:</td><td>${escapeHtml(formatDateInput(req.tanggalSelesai))}</td></tr>
+    <tr><td class="label">DURASI</td><td class="sep">:</td><td>${duration} HARI</td></tr>
+    <tr><td class="label">ALAMAT SELAMA CUTI</td><td class="sep">:</td><td>${escapeHtml(req.alamat)}</td></tr>
+    <tr><td class="label">NO. TELEPON</td><td class="sep">:</td><td>${escapeHtml(req.noTelepon)}</td></tr>
+    <tr><td class="label">PETUGAS PENGGANTI</td><td class="sep">:</td><td>${escapeHtml(req.petugasPengganti)}</td></tr>
+    <tr><td class="label">TANGGAL PENGAJUAN</td><td class="sep">:</td><td>${escapeHtml(formatDateInput(req.tanggalPengajuan))} ${req.tanggalPengajuan ? '• ' + escapeHtml(formatTimeFromDate(req.tanggalPengajuan)) : ''}</td></tr>
+  </table>
+
+  <div class="status">✅ STATUS: DISETUJUI</div>
+
+  <div class="sign">
+    <div class="box" style="min-width: 240px;">
+      <div>MENGETAHUI,</div>
+      <div class="space"></div>
+      <div class="name">${escapeHtml((state.kopMengetahuiName || 'PEJABAT').toString())}</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    DOKUMEN INI DICETAK DARI SISTEM IZIN CUTI ONLINE • ${escapeHtml('https://pengajuan-cuti-mitra-cs.pages.dev/')}
+    <br>
+    DICETAK PADA: ${printedAt.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB
+  </div>
+
+  <div class="no-print">
+    <button class="btn" onclick="window.print()">🖨️ CETAK DOKUMEN</button>
+  </div>
+</body>
+</html>
+            `);
+
+            w.document.close();
         }
 
         // Format date to Indonesian
@@ -602,11 +1115,10 @@
         }
 
         async function handleAdminLogin() {
-            const username = document.getElementById('adminUsername')?.value;
             const password = document.getElementById('adminPassword')?.value;
             
-            if (!username || !password) {
-                alert('USERNAME DAN PASSWORD WAJIB DIISI!');
+            if (!password) {
+                alert('PASSWORD WAJIB DIISI!');
                 return;
             }
             
@@ -614,34 +1126,38 @@
                 state.loading = true;
                 render();
                 
-                const response = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=verifyAdmin&username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&t=${Date.now()}`);
+                const response = await fetch(`${CONFIG.GOOGLE_SCRIPT_URL}?action=verifyAdmin&username=admin&password=${encodeURIComponent(password)}&t=${Date.now()}`);
                 const data = await response.json();
                 
                 if (data.success) {
                     state.isAdminLoggedIn = true;
-                    state.adminUsername = username;
+                    state.adminUsername = 'admin';
                     state.showAdminLogin = false;
                     state.page = 'admin';
                     requestNotificationPermission();
                     await fetchLeaveRequests();
                     await fetchEmployees();
+                    await fetchAdminWa(true);
+                    await fetchKopMengetahuiName(true);
                     startAutoRefresh();
                 } else {
-                    alert('USERNAME ATAU PASSWORD SALAH!');
+                    alert('PASSWORD SALAH!');
                 }
             } catch (error) {
                 console.error('Error logging in:', error);
-                if (username === 'admin' && password === 'admin123') {
+                if (password === 'admin123') {
                     state.isAdminLoggedIn = true;
-                    state.adminUsername = username;
+                    state.adminUsername = 'admin';
                     state.showAdminLogin = false;
                     state.page = 'admin';
                     requestNotificationPermission();
                     await fetchLeaveRequests();
                     await fetchEmployees();
+                    await fetchAdminWa(true);
+                    await fetchKopMengetahuiName(true);
                     startAutoRefresh();
                 } else {
-                    alert('USERNAME ATAU PASSWORD SALAH!');
+                    alert('PASSWORD SALAH!');
                 }
             } finally {
                 state.loading = false;
@@ -1511,9 +2027,14 @@ Terima kasih.`
                                         <p class="text-xs text-gray-500 hidden sm:block">KELOLA PENGAJUAN CUTI</p>
                                     </div>
                                 </div>
-                                <button onclick="logout()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs sm:text-sm font-medium">
-                                    LOGOUT
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="openAdminSettings()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition-colors text-xs sm:text-sm font-extrabold">
+                                        ⚙️ PENGATURAN
+                                    </button>
+                                    <button onclick="logout()" class="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs sm:text-sm font-medium">
+                                        LOGOUT
+                                    </button>
+                                </div>
                             </div>
                             
                             <!-- Info Bar -->
@@ -1534,21 +2055,7 @@ Terima kasih.`
                                 </div>
                             </div>
                             
-                            <!-- Action Buttons - Teks lengkap di mobile dan desktop -->
-                            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                <button onclick="manualRefresh()" class="px-2 py-2.5 sm:px-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs font-medium flex items-center justify-center gap-1">
-                                    🔄 REFRESH
-                                </button>
-                                <button onclick="state.showChangePassword = true; render();" class="px-2 py-2.5 sm:px-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors text-xs font-medium flex items-center justify-center gap-1">
-                                    🔐 PASSWORD
-                                </button>
-                                <button onclick="state.showEmployeeForm = true; state.editingEmployee = null; state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorPhone: '' }; render();" class="px-2 py-2.5 sm:px-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-medium flex items-center justify-center gap-1">
-                                    👥 KARYAWAN
-                                </button>
-                                <button onclick="goToHome()" class="px-2 py-2.5 sm:px-3 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition-colors text-xs font-medium flex items-center justify-center gap-1">
-                                    🏠 BERANDA
-                                </button>
-                            </div>
+                            <!-- AKSI DIPINDAHKAN KE MENU PENGATURAN (REFRESH & BERANDA DIHILANGKAN SESUAI PERMINTAAN) -->
                         </div>
                         
                         <!-- Statistics -->
@@ -1719,7 +2226,14 @@ Terima kasih.`
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <span class="self-start px-3 py-1 rounded-full text-xs font-bold border ${req.status === 'Disetujui' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}">${req.status.toUpperCase()}</span>
+                                                <div class="flex items-center gap-2">
+                                                    ${req.status === 'Disetujui' ? `
+                                                        <button onclick='printLeaveRequest(${JSON.stringify(req).replace(/'/g, "\\'")})' class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors">
+                                                            🖨️ PRINT
+                                                        </button>
+                                                    ` : ''}
+                                                    <span class="self-start px-3 py-1 rounded-full text-xs font-bold border ${req.status === 'Disetujui' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}">${req.status.toUpperCase()}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     `).join('')}
@@ -1740,14 +2254,16 @@ Terima kasih.`
                         <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center">🔐 LOGIN ADMIN</h2>
                         
                         <form onsubmit="event.preventDefault(); handleAdminLogin();">
-                            <div class="mb-3 sm:mb-4">
-                                <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">USERNAME</label>
-                                <input type="text" id="adminUsername" value="admin" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
-                            </div>
-                            
                             <div class="mb-4 sm:mb-6">
                                 <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD</label>
-                                <input type="password" id="adminPassword" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" onkeypress="if(event.key === 'Enter') handleAdminLogin();">
+                                <div class="relative">
+                                    <input type="password" id="adminPassword" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" placeholder="MASUKKAN PASSWORD" autofocus inputmode="text" autocapitalize="off" autocomplete="current-password">
+                                    <button type="button" id="toggleAdminPassword" onclick="togglePasswordVisibility('adminPassword','toggleAdminPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="flex gap-2 sm:gap-3">
@@ -1757,6 +2273,195 @@ Terima kasih.`
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminSettingsModal() {
+            if (!state.showAdminSettings) return '';
+
+            return `
+                <div class="fixed inset-0 bg-black/50 modal-backdrop flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-6 w-full max-w-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl sm:text-2xl font-extrabold text-gray-800">⚙️ PENGATURAN</h2>
+                            <button onclick="closeAdminSettings()" class="p-2 hover:bg-gray-100 rounded-lg">
+                                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="space-y-2">
+                            <button onclick="closeAdminSettings(); state.showChangePassword = true; render();" class="w-full text-left px-4 py-3 rounded-xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 hover:border-amber-300 transition">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="font-extrabold text-amber-800 text-sm">🔐 PASSWORD</div>
+                                        <div class="text-xs text-amber-700">GANTI PASSWORD ADMIN</div>
+                                    </div>
+                                    <div class="text-amber-700">›</div>
+                                </div>
+                            </button>
+
+                            <button onclick="closeAdminSettings(); state.showEmployeeForm = true; state.editingEmployee = null; state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorPhone: '' }; render();" class="w-full text-left px-4 py-3 rounded-xl border-2 border-green-200 bg-green-50 hover:bg-green-100 hover:border-green-300 transition">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="font-extrabold text-green-800 text-sm">👥 KARYAWAN</div>
+                                        <div class="text-xs text-green-700">KELOLA DATA KARYAWAN</div>
+                                    </div>
+                                    <div class="text-green-700">›</div>
+                                </div>
+                            </button>
+
+                            <button onclick="closeAdminSettings(); openAdminWaSettings();" class="w-full text-left px-4 py-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-300 transition">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="font-extrabold text-emerald-800 text-sm">📱 WHATSAPP ADMIN</div>
+                                        <div class="text-xs text-emerald-700">UPDATE NO WHATSAPP ADMIN</div>
+                                    </div>
+                                    <div class="text-emerald-700">›</div>
+                                </div>
+                            </button>
+
+                            <button onclick="closeAdminSettings(); openKopNameSettings();" class="w-full text-left px-4 py-3 rounded-xl border-2 border-indigo-200 bg-indigo-50 hover:bg-indigo-100 hover:border-indigo-300 transition">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="font-extrabold text-indigo-800 text-sm">🧾 NAMA KOP SURAT</div>
+                                        <div class="text-xs text-indigo-700">GANTI NAMA PEJABAT "MENGETAHUI"</div>
+                                    </div>
+                                    <div class="text-indigo-700">›</div>
+                                </div>
+                            </button>
+
+                            <button onclick="closeAdminSettings(); toggleWebsiteStatus();" class="w-full text-left px-4 py-3 rounded-xl border-2 ${state.websiteActive ? 'border-green-200 bg-green-50 hover:bg-green-100 hover:border-green-300' : 'border-gray-200 bg-gray-50 hover:bg-gray-100 hover:border-gray-300'} transition">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <div class="font-extrabold text-sm ${state.websiteActive ? 'text-green-800' : 'text-gray-800'}">${state.websiteActive ? '🟢 WEBSITE AKTIF' : '🔴 WEBSITE NONAKTIF'}</div>
+                                        <div class="text-xs ${state.websiteActive ? 'text-green-700' : 'text-gray-600'}">KLIK UNTUK MENGUBAH STATUS WEBSITE</div>
+                                    </div>
+                                    <div class="${state.websiteActive ? 'text-green-700' : 'text-gray-600'}">›</div>
+                                </div>
+                            </button>
+                        </div>
+
+                        <div class="mt-4 pt-4 border-t">
+                            <button onclick="closeAdminSettings()" class="w-full py-2.5 bg-gray-200 text-gray-700 font-extrabold rounded-lg hover:bg-gray-300 transition-colors text-sm">
+                                TUTUP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderKopNameSettingsModal() {
+            if (!state.showKopNameSettings) return '';
+
+            const current = (state.kopMengetahuiName || '').toString().trim();
+            const draft = (state.kopMengetahuiDraft || current).toString();
+            const passDraft = (state.kopMengetahuiPassDraft || '').toString();
+
+            return `
+                <div class="fixed inset-0 bg-black/50 modal-backdrop flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-6 w-full max-w-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl sm:text-2xl font-bold text-gray-800">🧾 NAMA KOP SURAT</h2>
+                            <button onclick="closeKopNameSettings()" class="p-2 hover:bg-gray-100 rounded-lg">
+                                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4">
+                            <p class="text-xs text-indigo-800 font-bold">NAMA SAAT INI:</p>
+                            <p class="text-sm text-indigo-900 font-extrabold break-words">${current || 'BELUM DIISI'}</p>
+                            <p class="text-xs text-indigo-700 mt-1">NAMA INI AKAN MUNCUL PADA BAGIAN "MENGETAHUI" DI SURAT CETAK.</p>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">NAMA PEJABAT (MENGETAHUI)</label>
+                            <input id="kopNameInput" type="text" value="${draft}" oninput="state.kopMengetahuiDraft = this.value" placeholder="NAMA PEJABAT" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD ADMIN (UNTUK KONFIRMASI)</label>
+                            <div class="relative">
+                                <input id="kopNamePassword" type="password" value="${passDraft}" oninput="state.kopMengetahuiPassDraft = this.value" placeholder="MASUKKAN PASSWORD" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="current-password">
+                                <button type="button" id="toggleKopNamePassword" onclick="togglePasswordVisibility('kopNamePassword','toggleKopNamePassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">⚠️ ANDA AKAN DIMINTA KONFIRMASI SEBELUM MENYIMPAN.</p>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button onclick="closeKopNameSettings()" class="flex-1 py-2.5 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 transition-colors text-sm">
+                                BATAL
+                            </button>
+                            <button onclick="saveKopNameFromModal()" ${state.loading ? 'disabled' : ''} class="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm ${state.loading ? 'opacity-50' : ''}">
+                                ${state.loading ? 'MENYIMPAN...' : 'SIMPAN'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminWaSettingsModal() {
+            if (!state.showAdminWaSettings) return '';
+
+            const current = (state.adminWa || CONFIG.ADMIN_WA || '').toString().trim();
+            const draft = (state.adminWaDraft || current).toString();
+            const passDraft = (state.adminWaPassDraft || '').toString();
+
+            return `
+                <div class="fixed inset-0 bg-black/50 modal-backdrop flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-6 w-full max-w-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl sm:text-2xl font-bold text-gray-800">📱 PENGATURAN WA ADMIN</h2>
+                            <button onclick="closeAdminWaSettings()" class="p-2 hover:bg-gray-100 rounded-lg">
+                                <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+                            <p class="text-xs text-emerald-800 font-bold">NO SAAT INI:</p>
+                            <p class="text-sm text-emerald-900 font-extrabold break-all">${current || 'BELUM DIISI'}</p>
+                            <p class="text-xs text-emerald-700 mt-1">FORMAT: 62XXXXXXXXXXX (TANPA +)</p>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">NO WHATSAPP BARU</label>
+                            <input id="adminWaInput" type="text" value="${draft}" oninput="state.adminWaDraft = this.value" placeholder="628123456789" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm">
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD ADMIN (UNTUK KONFIRMASI)</label>
+                            <div class="relative">
+                                <input id="adminWaPassword" type="password" value="${passDraft}" oninput="state.adminWaPassDraft = this.value" placeholder="MASUKKAN PASSWORD" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="current-password">
+                                <button type="button" id="toggleAdminWaPassword" onclick="togglePasswordVisibility('adminWaPassword','toggleAdminWaPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">⚠️ ANDA AKAN DIMINTA KONFIRMASI SEBELUM MENYIMPAN.</p>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button onclick="closeAdminWaSettings()" class="flex-1 py-2.5 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 transition-colors text-sm">
+                                BATAL
+                            </button>
+                            <button onclick="saveAdminWaFromModal()" ${state.loading ? 'disabled' : ''} class="flex-1 py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition-colors text-sm ${state.loading ? 'opacity-50' : ''}">
+                                ${state.loading ? 'MENYIMPAN...' : 'SIMPAN'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1778,17 +2483,38 @@ Terima kasih.`
                             
                             <div class="mb-3">
                                 <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD LAMA</label>
-                                <input type="password" id="oldPassword" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
+                                <div class="relative">
+                                    <input type="password" id="oldPassword" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="current-password">
+                                    <button type="button" id="toggleOldPassword" onclick="togglePasswordVisibility('oldPassword','toggleOldPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="mb-3">
                                 <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD BARU (MIN 6)</label>
-                                <input type="password" id="newPassword" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
+                                <div class="relative">
+                                    <input type="password" id="newPassword" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="new-password">
+                                    <button type="button" id="toggleNewPassword" onclick="togglePasswordVisibility('newPassword','toggleNewPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="mb-4 sm:mb-6">
                                 <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">KONFIRMASI PASSWORD</label>
-                                <input type="password" id="confirmPassword" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
+                                <div class="relative">
+                                    <input type="password" id="confirmPassword" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="new-password">
+                                    <button type="button" id="toggleConfirmPassword" onclick="togglePasswordVisibility('confirmPassword','toggleConfirmPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div class="flex gap-2 sm:gap-3">
@@ -2053,6 +2779,14 @@ Terima kasih.`
         function render() {
             const app = document.getElementById('app');
             let content = '';
+
+            // Jika website nonaktif dan user bukan admin, tampilkan halaman maintenance
+            if (state.websiteStatusLoaded && state.websiteActive === false && !state.isAdminLoggedIn) {
+                content = renderMaintenancePage();
+                content += renderAdminLoginModal();
+                app.innerHTML = content;
+                return;
+            }
             
             switch(state.page) {
                 case 'select':
@@ -2070,6 +2804,9 @@ Terima kasih.`
             }
             
             content += renderAdminLoginModal();
+            content += renderAdminSettingsModal();
+            content += renderAdminWaSettingsModal();
+            content += renderKopNameSettingsModal();
             content += renderChangePasswordModal();
             content += renderCheckStatusModal();
             content += renderEmployeeModal();
@@ -2078,8 +2815,11 @@ Terima kasih.`
         }
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchEmployees();
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkWebsiteStatus(false);
+            await fetchAdminWa(true);
+            await fetchKopMengetahuiName(true);
+            await fetchEmployees();
         });
     </script>
 </body>
