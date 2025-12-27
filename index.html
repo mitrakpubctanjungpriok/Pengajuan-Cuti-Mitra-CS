@@ -5,8 +5,547 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SISTEM IZIN CUTI</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- QR CODE GENERATOR (UNTUK TTD/QR DI PRINT OUT) -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+
+    <!-- QR CODE GENERATOR OFFLINE (TANPA CDN)
+         Implementasi ringan berbasis Nayuki QR Code Generator (MIT).
+         Menyediakan API kompatibel: window.QRCode.toCanvas(canvas, text, options)
+         (Mengurangi ketergantungan koneksi/CDN untuk fitur tanda tangan QR).
+    -->
+    <script>
+    /*
+     * QR Code generator library (MIT License)
+     * Based on "QR Code generator" by Project Nayuki (https://www.nayuki.io/page/qr-code-generator-library)
+     * Adapted to provide a minimal global `QRCode.toCanvas()` API (offline, no CDN).
+     */
+    (function(){
+      'use strict';
+      try {
+
+      // ---- Minimal Nayuki QR implementation (compressed) ----
+      // Note: This is a compacted version sufficient for encodeText() + getModule().
+
+      function QrCode(size, errorCorrectionLevel, dataCodewords, mask) {
+        this.size = size;
+        this.errorCorrectionLevel = errorCorrectionLevel;
+        this.mask = mask;
+        this.modules = new Array(size);
+        this.isFunction = new Array(size);
+        for (let i = 0; i < size; i++) {
+          this.modules[i] = new Array(size).fill(false);
+          this.isFunction[i] = new Array(size).fill(false);
+        }
+        this.drawFunctionPatterns();
+        const allCodewords = this.addEccAndInterleave(dataCodewords);
+        this.drawCodewords(allCodewords);
+        if (mask === -1) {
+          let minPenalty = 1e9;
+          let bestMask = 0;
+          for (let m = 0; m < 8; m++) {
+            this.applyMask(m);
+            this.drawFormatBits(m);
+            const penalty = this.getPenaltyScore();
+            this.applyMask(m);
+            if (penalty < minPenalty) {
+              minPenalty = penalty;
+              bestMask = m;
+            }
+          }
+          this.mask = bestMask;
+        }
+        this.applyMask(this.mask);
+        this.drawFormatBits(this.mask);
+        this.isFunction = null;
+      }
+
+      QrCode.prototype.getModule = function(x, y) {
+        return this.modules[y][x];
+      };
+
+      QrCode.Ecc = {
+        LOW:      { ordinal: 0, formatBits: 1 },
+        MEDIUM:   { ordinal: 1, formatBits: 0 },
+        QUARTILE: { ordinal: 2, formatBits: 3 },
+        HIGH:     { ordinal: 3, formatBits: 2 }
+      };
+
+      QrCode.encodeText = function(text, ecl) {
+        const segs = QrSegment.makeSegments(text);
+        return QrCode.encodeSegments(segs, ecl);
+      };
+
+      QrCode.encodeSegments = function(segs, ecl) {
+        ecl = ecl || QrCode.Ecc.HIGH;
+        // Find smallest version that fits
+        for (let version = 1; version <= 40; version++) {
+          const dataCapacityBits = QrCode.getNumDataCodewords(version, ecl) * 8;
+          const dataUsedBits = QrSegment.getTotalBits(segs, version);
+          if (dataUsedBits !== null && dataUsedBits <= dataCapacityBits) {
+            const bb = new BitBuffer();
+            for (const seg of segs) {
+              bb.appendBits(seg.mode.modeBits, 4);
+              bb.appendBits(seg.numChars, seg.mode.numCharCountBits(version));
+              bb.appendData(seg.data);
+            }
+            // Terminator + padding
+            bb.appendBits(0, Math.min(4, dataCapacityBits - bb.bitLength()));
+            bb.appendBits(0, (8 - bb.bitLength() % 8) % 8);
+            for (let pad = 0; bb.bitLength() < dataCapacityBits; pad ^= 0xEC ^ 0x11) {
+              bb.appendBits(pad ? 0x11 : 0xEC, 8);
+            }
+            const dataCodewords = bb.getBytes();
+            return new QrCode(QrCode.getSize(version), ecl, dataCodewords, -1);
+          }
+        }
+        throw new Error('DATA_TOO_LONG');
+      };
+
+      QrCode.getSize = function(version) {
+        return version * 4 + 17;
+      };
+
+      QrCode.getNumDataCodewords = function(version, ecl) {
+        return (QrCode.getNumRawDataModules(version) / 8 | 0) - QrCode.getNumEccCodewords(version, ecl);
+      };
+
+      QrCode.getNumRawDataModules = function(version) {
+        if (version < 1 || version > 40) throw new Error('VERSION');
+        let result = (16 * version + 128) * version + 64;
+        if (version >= 2) {
+          const numAlign = Math.floor(version / 7) + 2;
+          result -= (25 * numAlign - 10) * numAlign - 55;
+          if (version >= 7) result -= 36;
+        }
+        return result;
+      };
+
+      QrCode.getNumEccCodewords = function(version, ecl) {
+        return QrCode.ECC_CODEWORDS_PER_BLOCK[ecl.ordinal][version] * QrCode.NUM_ERROR_CORRECTION_BLOCKS[ecl.ordinal][version];
+      };
+
+      QrCode.ECC_CODEWORDS_PER_BLOCK = [
+        [-1,  7,10,15,20,26,18,20,24,30,18,20,24,26,30,22,24,28,30,28,28,28,28,30,30,26,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30],
+        [-1, 10,16,26,18,24,16,18,22,22,26,30,22,22,24,24,28,28,26,26,26,26,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28,28],
+        [-1, 13,22,18,26,18,24,18,22,20,24,28,26,24,20,30,24,28,28,26,30,28,30,30,30,30,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30],
+        [-1, 17,28,22,16,22,28,26,26,24,28,24,28,22,24,24,30,28,28,26,28,30,24,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30,30]
+      ];
+
+      QrCode.NUM_ERROR_CORRECTION_BLOCKS = [
+        [-1,1,1,1,1,1,2,2,2,2,4,4,4,4,4,6,6,6,6,7,8,8,9,9,10,12,12,12,13,14,15,16,17,18,19,19,20,21,22,24,25],
+        [-1,1,1,1,2,2,4,4,4,5,5,5,8,9,9,10,10,11,13,14,16,17,17,18,20,21,23,25,26,28,29,31,33,35,37,38,40,43,45,47,49],
+        [-1,1,1,2,2,4,4,6,6,8,8,8,10,12,16,12,17,16,18,21,20,23,23,25,27,29,34,34,35,38,40,43,45,48,51,53,56,59,62,65,68],
+        [-1,1,1,2,4,4,4,5,6,8,8,11,11,16,16,18,16,19,21,25,25,25,34,30,32,35,37,40,42,45,48,51,54,57,60,63,66,70,74,77,81]
+      ];
+
+      QrCode.prototype.drawFunctionPatterns = function() {
+        // Finder patterns
+        for (let i = 0; i < 7; i++) {
+          for (let j = 0; j < 7; j++) {
+            const dist = Math.max(Math.abs(i - 3), Math.abs(j - 3));
+            const val = dist !== 2 && dist !== 4;
+            this.setFunctionModule(0 + j, 0 + i, val);
+            this.setFunctionModule(this.size - 1 - j, 0 + i, val);
+            this.setFunctionModule(0 + j, this.size - 1 - i, val);
+          }
+        }
+        // Separators
+        for (let i = 0; i < 8; i++) {
+          this.setFunctionModule(7, i, false);
+          this.setFunctionModule(this.size - 8, i, false);
+          this.setFunctionModule(7, this.size - 1 - i, false);
+          this.setFunctionModule(i, 7, false);
+          this.setFunctionModule(this.size - 1 - i, 7, false);
+          this.setFunctionModule(i, this.size - 8, false);
+        }
+        // Timing patterns
+        for (let i = 8; i < this.size - 8; i++) {
+          const bit = i % 2 === 0;
+          this.setFunctionModule(6, i, bit);
+          this.setFunctionModule(i, 6, bit);
+        }
+        // Dark module
+        this.setFunctionModule(8, this.size - 8, true);
+        // Alignment patterns
+        const alignPatPos = QrCode.getAlignmentPatternPositions((this.size - 17) / 4);
+        const numAlign = alignPatPos.length;
+        for (let i = 0; i < numAlign; i++) {
+          for (let j = 0; j < numAlign; j++) {
+            if ((i === 0 && j === 0) || (i === 0 && j === numAlign - 1) || (i === numAlign - 1 && j === 0))
+              continue;
+            this.drawAlignmentPattern(alignPatPos[j], alignPatPos[i]);
+          }
+        }
+        // Format info areas
+        for (let i = 0; i < 9; i++) {
+          this.setFunctionModule(8, i, false);
+          this.setFunctionModule(i, 8, false);
+        }
+        for (let i = 0; i < 8; i++) {
+          this.setFunctionModule(this.size - 1 - i, 8, false);
+          this.setFunctionModule(8, this.size - 1 - i, false);
+        }
+        this.setFunctionModule(8, 8, false);
+        this.setFunctionModule(8, this.size - 8, false);
+        this.setFunctionModule(this.size - 8, 8, false);
+
+        // Version info (v>=7)
+        const version = (this.size - 17) / 4;
+        if (version >= 7) {
+          for (let i = 0; i < 6; i++) {
+            for (let j = 0; j < 3; j++) {
+              this.setFunctionModule(this.size - 11 + j, i, false);
+              this.setFunctionModule(i, this.size - 11 + j, false);
+            }
+          }
+        }
+      };
+
+      QrCode.getAlignmentPatternPositions = function(version) {
+        if (version === 1) return [];
+        const numAlign = Math.floor(version / 7) + 2;
+        const step = (version === 32) ? 26 : Math.ceil((version * 4 + 17 - 13) / (numAlign * 2 - 2)) * 2;
+        const result = [6];
+        for (let pos = version * 4 + 17 - 7; result.length < numAlign; pos -= step)
+          result.splice(1, 0, pos);
+        return result;
+      };
+
+      QrCode.prototype.drawAlignmentPattern = function(x, y) {
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const dist = Math.max(Math.abs(dx), Math.abs(dy));
+            this.setFunctionModule(x + dx, y + dy, dist !== 1);
+          }
+        }
+      };
+
+      QrCode.prototype.setFunctionModule = function(x, y, isDark) {
+        this.modules[y][x] = isDark;
+        this.isFunction[y][x] = true;
+      };
+
+      QrCode.prototype.addEccAndInterleave = function(data) {
+        const version = (this.size - 17) / 4;
+        const numBlocks = QrCode.NUM_ERROR_CORRECTION_BLOCKS[this.errorCorrectionLevel.ordinal][version];
+        const blockEccLen = QrCode.ECC_CODEWORDS_PER_BLOCK[this.errorCorrectionLevel.ordinal][version];
+        const rawCodewords = QrCode.getNumRawDataModules(version) / 8;
+        const numShortBlocks = numBlocks - rawCodewords % numBlocks;
+        const shortBlockLen = Math.floor(rawCodewords / numBlocks);
+        const blocks = [];
+        const rsDiv = ReedSolomon.computeDivisor(blockEccLen);
+        for (let i = 0, k = 0; i < numBlocks; i++) {
+          const datLen = shortBlockLen - blockEccLen + (i < numShortBlocks ? 0 : 1);
+          const dat = data.slice(k, k + datLen);
+          k += datLen;
+          const ecc = ReedSolomon.computeRemainder(dat, rsDiv);
+          if (i < numShortBlocks) dat.push(0);
+          blocks.push(dat.concat(ecc));
+        }
+        const result = [];
+        for (let i = 0; i < blocks[0].length; i++) {
+          for (let j = 0; j < blocks.length; j++) {
+            if (i !== shortBlockLen - blockEccLen || j >= numShortBlocks)
+              result.push(blocks[j][i]);
+          }
+        }
+        return result;
+      };
+
+      QrCode.prototype.drawCodewords = function(data) {
+        let i = 0;
+        for (let right = this.size - 1; right >= 1; right -= 2) {
+          if (right === 6) right = 5;
+          for (let vert = 0; vert < this.size; vert++) {
+            for (let j = 0; j < 2; j++) {
+              const x = right - j;
+              const y = ((right + 1) & 2) === 0 ? this.size - 1 - vert : vert;
+              if (!this.isFunction[y][x] && i < data.length * 8) {
+                this.modules[y][x] = ((data[i >>> 3] >>> (7 - (i & 7))) & 1) !== 0;
+                i++;
+              }
+            }
+          }
+        }
+      };
+
+      QrCode.prototype.applyMask = function(mask) {
+        for (let y = 0; y < this.size; y++) {
+          for (let x = 0; x < this.size; x++) {
+            if (this.isFunction[y][x]) continue;
+            let invert = false;
+            switch (mask) {
+              case 0: invert = (x + y) % 2 === 0; break;
+              case 1: invert = y % 2 === 0; break;
+              case 2: invert = x % 3 === 0; break;
+              case 3: invert = (x + y) % 3 === 0; break;
+              case 4: invert = (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0; break;
+              case 5: invert = (x * y) % 2 + (x * y) % 3 === 0; break;
+              case 6: invert = ((x * y) % 2 + (x * y) % 3) % 2 === 0; break;
+              case 7: invert = ((x + y) % 2 + (x * y) % 3) % 2 === 0; break;
+              default: throw new Error('MASK');
+            }
+            if (invert) this.modules[y][x] = !this.modules[y][x];
+          }
+        }
+      };
+
+      QrCode.prototype.drawFormatBits = function(mask) {
+        const data = (this.errorCorrectionLevel.formatBits << 3) | mask;
+        let rem = data;
+        for (let i = 0; i < 10; i++) rem = (rem << 1) ^ (((rem >>> 9) & 1) * 0x537);
+        const bits = ((data << 10) | rem) ^ 0x5412;
+        for (let i = 0; i <= 5; i++) this.setFunctionModule(8, i, ((bits >>> i) & 1) !== 0);
+        this.setFunctionModule(8, 7, ((bits >>> 6) & 1) !== 0);
+        this.setFunctionModule(8, 8, ((bits >>> 7) & 1) !== 0);
+        this.setFunctionModule(7, 8, ((bits >>> 8) & 1) !== 0);
+        for (let i = 9; i < 15; i++) this.setFunctionModule(14 - i, 8, ((bits >>> i) & 1) !== 0);
+        for (let i = 0; i < 8; i++) this.setFunctionModule(this.size - 1 - i, 8, ((bits >>> i) & 1) !== 0);
+        for (let i = 8; i < 15; i++) this.setFunctionModule(8, this.size - 15 + i, ((bits >>> i) & 1) !== 0);
+        this.setFunctionModule(8, this.size - 8, true);
+      };
+
+      QrCode.prototype.getPenaltyScore = function() {
+        let result = 0;
+        // Adjacent modules in row/column
+        for (let y = 0; y < this.size; y++) {
+          let runColor = false;
+          let runX = 0;
+          for (let x = 0; x < this.size; x++) {
+            const color = this.modules[y][x];
+            if (x === 0 || color !== runColor) {
+              runColor = color;
+              runX = 1;
+            } else {
+              runX++;
+              if (runX === 5) result += 3;
+              else if (runX > 5) result++;
+            }
+          }
+        }
+        for (let x = 0; x < this.size; x++) {
+          let runColor = false;
+          let runY = 0;
+          for (let y = 0; y < this.size; y++) {
+            const color = this.modules[y][x];
+            if (y === 0 || color !== runColor) {
+              runColor = color;
+              runY = 1;
+            } else {
+              runY++;
+              if (runY === 5) result += 3;
+              else if (runY > 5) result++;
+            }
+          }
+        }
+        // 2x2 blocks
+        for (let y = 0; y < this.size - 1; y++) {
+          for (let x = 0; x < this.size - 1; x++) {
+            const c = this.modules[y][x];
+            if (c === this.modules[y][x+1] && c === this.modules[y+1][x] && c === this.modules[y+1][x+1])
+              result += 3;
+          }
+        }
+        // Finder-like patterns
+        const finderPenalty = (line) => {
+          let score = 0;
+          for (let i = 0; i + 10 < line.length; i++) {
+            const p = line.slice(i, i + 11);
+            if (p === '10111010000' || p === '00001011101') score += 40;
+          }
+          return score;
+        };
+        for (let y = 0; y < this.size; y++) {
+          let s = '';
+          for (let x = 0; x < this.size; x++) s += this.modules[y][x] ? '1' : '0';
+          result += finderPenalty(s);
+        }
+        for (let x = 0; x < this.size; x++) {
+          let s = '';
+          for (let y = 0; y < this.size; y++) s += this.modules[y][x] ? '1' : '0';
+          result += finderPenalty(s);
+        }
+        // Balance
+        let dark = 0;
+        for (let y = 0; y < this.size; y++)
+          for (let x = 0; x < this.size; x++)
+            if (this.modules[y][x]) dark++;
+        const total = this.size * this.size;
+        const k = Math.abs(dark * 20 - total * 10) / total;
+        result += Math.floor(k) * 10;
+        return result;
+      };
+
+      function QrSegment(mode, numChars, data) {
+        this.mode = mode;
+        this.numChars = numChars;
+        this.data = data;
+      }
+
+      QrSegment.Mode = {
+        BYTE: {
+          modeBits: 0x4,
+          numCharCountBits: function(ver) { return ver < 10 ? 8 : 16; }
+        }
+      };
+
+      QrSegment.makeBytes = function(bytes) {
+        const bb = new BitBuffer();
+        for (const b of bytes) bb.appendBits(b, 8);
+        return new QrSegment(QrSegment.Mode.BYTE, bytes.length, bb);
+      };
+
+      QrSegment.makeSegments = function(text) {
+        // Encode UTF-8
+        const utf8 = unescape(encodeURIComponent(text));
+        const bytes = [];
+        for (let i = 0; i < utf8.length; i++) bytes.push(utf8.charCodeAt(i));
+        return [QrSegment.makeBytes(bytes)];
+      };
+
+      QrSegment.getTotalBits = function(segs, version) {
+        let sum = 0;
+        for (const seg of segs) {
+          const ccbits = seg.mode.numCharCountBits(version);
+          if (seg.numChars >= (1 << ccbits)) return null;
+          sum += 4 + ccbits + seg.data.bitLength();
+        }
+        return sum;
+      };
+
+      function BitBuffer() {
+        this.data = [];
+        this.bitLen = 0;
+      }
+      BitBuffer.prototype.appendBits = function(val, len) {
+        for (let i = len - 1; i >= 0; i--) {
+          this.data.push(((val >>> i) & 1) !== 0);
+          this.bitLen++;
+        }
+      };
+      BitBuffer.prototype.appendData = function(bb) {
+        for (let i = 0; i < bb.bitLen; i++) this.data.push(bb.data[i]);
+        this.bitLen += bb.bitLen;
+      };
+      BitBuffer.prototype.bitLength = function(){ return this.bitLen; };
+      BitBuffer.prototype.getBytes = function(){
+        const out = [];
+        for (let i = 0; i < this.bitLen; i += 8) {
+          let b = 0;
+          for (let j = 0; j < 8; j++) {
+            b = (b << 1) | ((i + j < this.bitLen && this.data[i + j]) ? 1 : 0);
+          }
+          out.push(b);
+        }
+        return out;
+      };
+
+      // Reed-Solomon tables MUST be initialized without self-referencing the `ReedSolomon` const
+      // (to avoid "Cannot access 'ReedSolomon' before initialization" on some browsers).
+      const __RS_EXP_TABLE = (function(){
+        const table = new Array(512);
+        let x = 1;
+        for (let i = 0; i < 255; i++) {
+          table[i] = x;
+          x = x << 1;
+          if (x & 0x100) x ^= 0x11D;
+        }
+        for (let i = 255; i < 512; i++) table[i] = table[i - 255];
+        return table;
+      })();
+
+      const __RS_LOG_TABLE = (function(){
+        const table = new Array(256).fill(0);
+        for (let i = 0; i < 255; i++) table[__RS_EXP_TABLE[i]] = i;
+        return table;
+      })();
+
+      const ReedSolomon = {
+        computeDivisor: function(degree) {
+          let result = [1];
+          for (let i = 0; i < degree; i++) {
+            result = ReedSolomon.multiplyPoly(result, [1, ReedSolomon.exp(i)]);
+          }
+          return result;
+        },
+        computeRemainder: function(data, divisor) {
+          let result = new Array(divisor.length - 1).fill(0);
+          for (const b of data) {
+            const factor = b ^ result[0];
+            result.shift();
+            result.push(0);
+            for (let i = 0; i < result.length; i++) {
+              result[i] ^= ReedSolomon.multiply(divisor[i + 1], factor);
+            }
+          }
+          return result;
+        },
+        multiplyPoly: function(p, q) {
+          const result = new Array(p.length + q.length - 1).fill(0);
+          for (let i = 0; i < p.length; i++)
+            for (let j = 0; j < q.length; j++)
+              result[i + j] ^= ReedSolomon.multiply(p[i], q[j]);
+          return result;
+        },
+        exp: function(i) { return __RS_EXP_TABLE[i]; },
+        multiply: function(x, y) {
+          if (x === 0 || y === 0) return 0;
+          return __RS_EXP_TABLE[(__RS_LOG_TABLE[x] + __RS_LOG_TABLE[y]) % 255];
+        },
+        EXP_TABLE: __RS_EXP_TABLE,
+        LOG_TABLE: __RS_LOG_TABLE
+      };
+
+      // ---- QRCode.toCanvas compatibility layer ----
+      function __installOfflineQrCodeApi() {
+        window.QRCode = {
+          toCanvas: function(canvas, text, options) {
+            // Return a promise for API compatibility (offline)
+            return Promise.resolve().then(function(){
+              options = options || {};
+              const ecc = (options.errorCorrectionLevel || 'H').toUpperCase();
+              const eccMap = { L: QrCode.Ecc.LOW, M: QrCode.Ecc.MEDIUM, Q: QrCode.Ecc.QUARTILE, H: QrCode.Ecc.HIGH };
+              const qr = QrCode.encodeText(String(text || ''), eccMap[ecc] || QrCode.Ecc.HIGH);
+
+              const margin = Number.isFinite(options.margin) ? options.margin : 0;
+              const wanted = Number.isFinite(options.width) ? options.width : 256;
+              const modules = qr.size;
+              const scale = Math.max(1, Math.floor(wanted / (modules + margin * 2)));
+              const size = scale * (modules + margin * 2);
+
+              canvas.width = size;
+              canvas.height = size;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) throw new Error('NO_CANVAS_CTX');
+
+              const dark = (options.color && options.color.dark) || '#000000';
+              const light = (options.color && options.color.light) || '#ffffff';
+
+              ctx.fillStyle = light;
+              ctx.fillRect(0, 0, size, size);
+              ctx.fillStyle = dark;
+
+              for (let y = 0; y < modules; y++) {
+                for (let x = 0; x < modules; x++) {
+                  if (qr.getModule(x, y)) {
+                    ctx.fillRect((x + margin) * scale, (y + margin) * scale, scale, scale);
+                  }
+                }
+              }
+            });
+          }
+        };
+      }
+
+      // Expose installer so main app can re-install if something overwrites QRCode
+      window.__installOfflineQr = __installOfflineQrCodeApi;
+      __installOfflineQrCodeApi();
+      } catch (e) {
+        // Jangan biarkan error QR merusak seluruh website
+        console.error('QR OFFLINE SCRIPT ERROR:', e);
+        window.__installOfflineQr = function(){};
+      }
+    })();
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -110,6 +649,10 @@
             ADMIN_WA: '', // OPSIONAL: CONTOH '628123456789'
             AUTO_REFRESH_INTERVAL: 5000 // 5 DETIK
         };
+
+        // Build marker (untuk memastikan browser sudah memuat versi terbaru)
+        const APP_BUILD = 'QR-OFFLINE-FIX-2025-12-24-03';
+        console.log('APP BUILD:', APP_BUILD);
 
         // State Management
         const state = {
@@ -456,61 +999,176 @@
             return '';
         }
 
+        // =====================================================
+        // QR LIB READY (OFFLINE)
+        // =====================================================
+        async function ensureQrLibReady() {
+            // OFFLINE QR: pastikan API tersedia. Jika terhapus/ter-override, re-install.
+            // Jangan lempar error kalau bisa kita perbaiki sendiri.
+            try {
+                if (typeof window !== 'undefined') {
+                    // Jika QRCode ada tapi bukan format yang kita butuhkan, hapus agar di-install ulang
+                    if (window.QRCode && typeof window.QRCode.toCanvas !== 'function') {
+                        try { delete window.QRCode; } catch (_) { window.QRCode = undefined; }
+                    }
+
+                    if (window.QRCode && typeof window.QRCode.toCanvas === 'function') return true;
+
+                    // Coba install ulang dari engine offline yang sudah disisipkan di <head>
+                    if (typeof window.__installOfflineQr === 'function') {
+                        try { window.__installOfflineQr(); } catch (e) { console.error('OFFLINE QR INSTALL ERROR:', e); }
+                    }
+
+                    if (window.QRCode && typeof window.QRCode.toCanvas === 'function') return true;
+                }
+            } catch (e) {
+                console.error('ensureQrLibReady error:', e);
+            }
+
+            // Jika masih gagal, ini berarti script QR offline tidak ter-load/ter-parse.
+            throw new Error('QR_LIBRARY_NOT_AVAILABLE_OFFLINE');
+        }
+
         // Buat QR code (data URL) dengan logo di tengah
-        async function generateQrWithLogoDataUrl(text, logoDataUrl) {
+        // NOTE: Untuk tanda tangan, kita butuh ukuran QR yang tidak terlalu besar agar aman disimpan di Google Sheets.
+        async function generateQrWithLogoDataUrl(text, logoDataUrl, width = 340) {
             if (!text) return '';
             try {
+                await ensureQrLibReady();
+
                 const canvas = document.createElement('canvas');
                 // QR
                 await QRCode.toCanvas(canvas, text, {
                     errorCorrectionLevel: 'H',
-                    margin: 1,
-                    width: 340,
+                    margin: 0, // lebih kecil
+                    width: width,
                     color: { dark: '#000000', light: '#ffffff' }
                 });
 
                 const ctx = canvas.getContext('2d');
                 if (!ctx) return canvas.toDataURL('image/png');
 
-                // Logo overlay
+                // Logo overlay (jika gagal load, tetap kembalikan QR tanpa logo)
                 if (logoDataUrl) {
-                    const logoImg = await new Promise((resolve, reject) => {
-                        const img = new Image();
-                        img.onload = () => resolve(img);
-                        img.onerror = reject;
-                        img.src = logoDataUrl;
-                    });
+                    try {
+                        const logoImg = await new Promise((resolve, reject) => {
+                            const img = new Image();
+                            img.crossOrigin = 'anonymous';
+                            img.onload = () => resolve(img);
+                            img.onerror = reject;
+                            img.src = logoDataUrl;
+                        });
 
-                    const size = Math.round(canvas.width * 0.22); // 22% dari QR
-                    const x = Math.round((canvas.width - size) / 2);
-                    const y = Math.round((canvas.height - size) / 2);
+                        const size = Math.round(canvas.width * 0.22); // 22% dari QR
+                        const x = Math.round((canvas.width - size) / 2);
+                        const y = Math.round((canvas.height - size) / 2);
 
-                    // white background rounded
-                    const pad = Math.round(size * 0.18);
-                    const bgSize = size + pad;
-                    const bx = Math.round((canvas.width - bgSize) / 2);
-                    const by = Math.round((canvas.height - bgSize) / 2);
-                    const r = Math.round(bgSize * 0.12);
+                        // white background rounded
+                        const pad = Math.round(size * 0.18);
+                        const bgSize = size + pad;
+                        const bx = Math.round((canvas.width - bgSize) / 2);
+                        const by = Math.round((canvas.height - bgSize) / 2);
+                        const r = Math.round(bgSize * 0.12);
 
-                    ctx.save();
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.moveTo(bx + r, by);
-                    ctx.arcTo(bx + bgSize, by, bx + bgSize, by + bgSize, r);
-                    ctx.arcTo(bx + bgSize, by + bgSize, bx, by + bgSize, r);
-                    ctx.arcTo(bx, by + bgSize, bx, by, r);
-                    ctx.arcTo(bx, by, bx + bgSize, by, r);
-                    ctx.closePath();
-                    ctx.fill();
-                    ctx.restore();
+                        ctx.save();
+                        ctx.fillStyle = '#ffffff';
+                        ctx.beginPath();
+                        ctx.moveTo(bx + r, by);
+                        ctx.arcTo(bx + bgSize, by, bx + bgSize, by + bgSize, r);
+                        ctx.arcTo(bx + bgSize, by + bgSize, bx, by + bgSize, r);
+                        ctx.arcTo(bx, by + bgSize, bx, by, r);
+                        ctx.arcTo(bx, by, bx + bgSize, by, r);
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.restore();
 
-                    ctx.drawImage(logoImg, x, y, size, size);
+                        ctx.drawImage(logoImg, x, y, size, size);
+                    } catch (e) {
+                        console.warn('LOGO OVERLAY GAGAL, QR TANPA LOGO:', e);
+                    }
                 }
 
                 return canvas.toDataURL('image/png');
             } catch (e) {
                 console.error('generateQrWithLogoDataUrl error:', e);
                 return '';
+            }
+        }
+
+        // Upload tanda tangan -> otomatis dibuat QR code (dengan logo Bea Cukai di tengah)
+        // Catatan: Yang disimpan ke Google Sheets adalah QR (data URL), bukan gambar tanda tangan mentah.
+        // Karena Google Sheets punya limit sekitar 50.000 karakter per sel, kita buat QR seramping mungkin.
+        async function handleKopSignatureUpload(event) {
+            const file = event?.target?.files?.[0];
+            if (!file) return;
+
+            // Validasi tipe file: hanya image
+            const type = (file.type || '').toLowerCase();
+            if (!type.startsWith('image/')) {
+                alert('FILE TANDA TANGAN HARUS BERUPA GAMBAR (JPG/PNG)!');
+                try { event.target.value = ''; } catch (_) {}
+                return;
+            }
+
+            try {
+                // Pastikan library QR OFFLINE siap
+                try {
+                    await ensureQrLibReady();
+                } catch (e) {
+                    console.error('QR LIB NOT READY:', e);
+                    alert('FITUR QR CODE OFFLINE BELUM SIAP DI PERANGKAT INI.\n\nCOBA: 1) TUTUP MODAL, 2) RELOAD HALAMAN (CTRL+SHIFT+R), 3) COBA LAGI.\n\nJIKA MASIH GAGAL: BUKA CONSOLE (F12) DAN KIRIMKAN ERROR KE ADMIN.');
+                    return;
+                }
+
+                const reader = new FileReader();
+                const fileDataUrl = await new Promise((resolve, reject) => {
+                    reader.onload = e => resolve(e.target.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+
+                // Payload dibuat singkat agar QR tidak terlalu padat (dan ukuran PNG QR kecil)
+                const now = new Date();
+                const stamp = now.toISOString();
+                const name = (state.kopMengetahuiDraft || state.kopMengetahuiName || '').toString().trim();
+                const nip = (state.kopMengetahuiNipDraft || state.kopMengetahuiNip || '').toString().trim();
+                const tail = (fileDataUrl || '').toString().slice(-18); // lebih pendek
+
+                // Format ringkas (lebih hemat daripada multi-line panjang)
+                // Contoh: SIC|TTD|NAMA=...|NIP=...|REF=...|TS=...
+                const qrText = `SIC|TTD|NAMA=${name || '-'}|NIP=${nip || '-'}|REF=${tail || '-'}|TS=${stamp}`;
+
+                // Mulai dari ukuran yang aman untuk sheet
+                const tryWidths = [220, 200, 180, 160];
+                let qrDataUrl = '';
+                for (const w of tryWidths) {
+                    qrDataUrl = await generateQrWithLogoDataUrl(qrText, BEA_CUKAI_LOGO_DATA_URL, w);
+                    if (qrDataUrl && qrDataUrl.length <= 50000) break;
+                }
+
+                if (!qrDataUrl) {
+                    alert('GAGAL MEMBUAT QR CODE. COBA LAGI.');
+                    return;
+                }
+
+                if (qrDataUrl.length > 50000) {
+                    alert(`QR TANDA TANGAN TERLALU BESAR UNTUK DISIMPAN (${qrDataUrl.length} KARAKTER).\nCOBA GUNAKAN GAMBAR TANDA TANGAN YANG LEBIH SEDERHANA (HITAM PUTIH) ATAU LEBIH KECIL.`);
+                    // Tetap tampilkan preview agar user paham, tapi tidak disarankan disimpan.
+                    state.kopMengetahuiSignatureDraft = qrDataUrl;
+                    render();
+                    return;
+                }
+
+                // Simpan QR hasil generasi sebagai draft signature
+                state.kopMengetahuiSignatureDraft = qrDataUrl;
+                render();
+
+            } catch (e) {
+                console.error('handleKopSignatureUpload error:', e);
+                alert('GAGAL MEMPROSES FILE TANDA TANGAN!');
+            } finally {
+                // reset input supaya bisa upload file yang sama lagi jika perlu
+                try { event.target.value = ''; } catch (_) {}
             }
         }
 
@@ -537,6 +1195,11 @@
             const newNameRaw = (state.kopMengetahuiDraft || document.getElementById('kopNameInput')?.value || '').trim();
             const newNipRaw = (state.kopMengetahuiNipDraft || document.getElementById('kopNipInput')?.value || '').trim();
             const sigRaw = (state.kopMengetahuiSignatureDraft || '').toString().trim();
+            // Google Sheets limit aman ~50.000 karakter per sel
+            if (sigRaw && sigRaw.length > 50000) {
+                alert(`QR TANDA TANGAN TERLALU BESAR UNTUK DISIMPAN (${sigRaw.length} KARAKTER).\nCOBA UPLOAD GAMBAR TANDA TANGAN YANG LEBIH SEDERHANA/KECIL (HITAM PUTIH).`);
+                return;
+            }
             const pass = (state.kopMengetahuiPassDraft || document.getElementById('kopNamePassword')?.value || '');
 
             if (!newNameRaw) {
@@ -554,7 +1217,7 @@
                 return;
             }
 
-            if (!confirm('ANDA YAKIN UNTUK MENGGANTI NAMA PEJABAT, NIP, DAN TANDA TANGAN PADA KOP SURAT ?')) return;
+            if (!confirm('ADA YAKIN UNTUK MENGGANTI NAMA PEJABAT, NIP, DAN TANDA TANGAN PADA KOP SURAT ?')) return;
 
             try {
                 state.loading = true;
@@ -657,7 +1320,7 @@
                 return;
             }
 
-            if (!confirm('ANDA YAKIN UNTUK MENGGANTI NOMOR WHATSAPP ADMIN ?')) return;
+            if (!confirm('ADA YAKIN UNTUK MENGGANTI NOMOR WHATSAPP ADMIN ?')) return;
 
             // Verifikasi password admin
             try {
@@ -779,9 +1442,19 @@
             const approvedAtRaw = req.rowIndex ? await fetchApprovedAtByRowIndex(req.rowIndex) : '';
             const approvedAtText = approvedAtRaw ? `${formatDateInput(approvedAtRaw)} ${formatTimeFromDate(approvedAtRaw)}` : '-';
 
-            // QR: link ke halaman website + informasi row index (lebih aman)
+            // QR: tampilkan hanya SATU QR.
+            // Prioritas: QR TANDA TANGAN (dari pengaturan). Jika belum ada, pakai QR VERIFIKASI (fallback).
             const qrText = `${'https://pengajuan-cuti-mitra-cs.pages.dev/'}\nPENGAJUAN CUTI\nNAMA: ${req.nama}\nROW: ${req.rowIndex || '-'}\nSTATUS: DISETUJUI`;
-            const qrDataUrl = await generateQrWithLogoDataUrl(qrText, BEA_CUKAI_LOGO_DATA_URL);
+
+            let qrDataUrl = '';
+            let qrLabel = '';
+            if (state.kopMengetahuiSignature) {
+                qrDataUrl = state.kopMengetahuiSignature;
+                qrLabel = 'QR TANDA TANGAN';
+            } else {
+                qrDataUrl = await generateQrWithLogoDataUrl(qrText, BEA_CUKAI_LOGO_DATA_URL);
+                qrLabel = 'QR VERIFIKASI';
+            }
 
             const w = window.open('', '_blank');
             if (!w) {
@@ -863,17 +1536,12 @@
       <div style="font-weight:700;">MENGETAHUI</div>
       <div style="font-weight:700;">KOORDINATOR TENAGA KEBERSIHAN</div>
 
-      ${state.kopMengetahuiSignature ? `
-        <div style="margin-top:10px;">
-          <img src="${state.kopMengetahuiSignature}" alt="TANDA TANGAN" style="height:70px;max-width:220px;object-fit:contain;" />
-        </div>
-      ` : `<div class="space"></div>`}
-
       ${qrDataUrl ? `
         <div style="margin-top:10px;">
-          <img src="${qrDataUrl}" alt="QR" style="height:110px;width:110px;object-fit:contain;border:1px solid #000;padding:6px;" />
+          <img src="${qrDataUrl}" alt="${qrLabel}" style="height:120px;width:120px;object-fit:contain;border:1px solid #000;padding:6px;background:#fff;" />
+          <div style="font-size:9pt;margin-top:4px;">${qrLabel}</div>
         </div>
-      ` : ''}
+      ` : `<div class="space"></div>`}
 
       <div class="name">${escapeHtml((state.kopMengetahuiName || 'PEJABAT').toString())}</div>
       <div style="margin-top:6px;font-weight:700;">NIP. ${escapeHtml((state.kopMengetahuiNip || '.............').toString())}</div>
@@ -913,20 +1581,20 @@
 
         function formatTime(date) {
             const d = new Date(date);
-            return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB';
+            return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Jakarta' }) + ' WIB';
         }
 
         function formatDateInput(dateStr) {
             if (!dateStr) return '-';
             const d = new Date(dateStr);
-            return d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            return d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Jakarta' });
         }
 
         function formatTimeFromDate(dateStr) {
             if (!dateStr) return '';
             const d = new Date(dateStr);
             if (isNaN(d.getTime())) return '';
-            return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WIB';
+            return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }) + ' WIB';
         }
 
         // Format tanggal untuk filter (YYYY-MM-DD)
@@ -1916,9 +2584,8 @@ Terima kasih.`
                                     <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">UNIT KERJA *</label>
                                     <select id="unitKerja" onchange="state.formData.unitKerja = this.value;" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm sm:text-base">
                                         <option value="">PILIH UNIT KERJA</option>
-                                        <option value="Tenaga Kebersihan" ${form.unitKerja === 'Tenaga Kebersihan' ? 'selected' : ''}>TENAGA KEBERSIHAN</option>
+                                        <option value="Pramubhakti" ${form.unitKerja === 'Pramubhakti' ? 'selected' : ''}>PRAMUBHAKTI</option>
                                         <option value="Pramusaji" ${form.unitKerja === 'Pramusaji' ? 'selected' : ''}>PRAMUSAJI</option>
-                                        <option value="Teknisi Gedung" ${form.unitKerja === 'Teknisi Gedung' ? 'selected' : ''}>TEKNISI GEDUNG</option>
                                     </select>
                                 </div>
                             </div>
@@ -2484,8 +3151,9 @@ Terima kasih.`
 
             return `
                 <div class="fixed inset-0 bg-black/50 modal-backdrop flex items-center justify-center z-50 p-4">
-                    <div class="bg-white rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-6 w-full max-w-sm">
-                        <div class="flex items-center justify-between mb-4">
+                    <div class="bg-white rounded-xl sm:rounded-2xl shadow-xl w-full max-w-sm max-h-[90vh] overflow-hidden flex flex-col">
+                        <!-- HEADER (STICKY) -->
+                        <div class="flex items-center justify-between px-4 sm:px-6 py-4 border-b bg-white sticky top-0 z-10">
                             <h2 class="text-xl sm:text-2xl font-bold text-gray-800">🧾 NAMA KOP SURAT</h2>
                             <button onclick="closeKopNameSettings()" class="p-2 hover:bg-gray-100 rounded-lg">
                                 <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2494,54 +3162,63 @@ Terima kasih.`
                             </button>
                         </div>
 
-                        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4">
-                            <p class="text-xs text-indigo-800 font-bold">NAMA SAAT INI:</p>
-                            <p class="text-sm text-indigo-900 font-extrabold break-words">${current || 'BELUM DIISI'}</p>
-                            <p class="text-xs text-indigo-700 mt-1">NAMA INI AKAN MUNCUL PADA BAGIAN "MENGETAHUI" DI SURAT CETAK.</p>
-                        </div>
+                        <!-- BODY (SCROLL) -->
+                        <div class="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+                            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4">
+                                <p class="text-xs text-indigo-800 font-bold">NAMA SAAT INI:</p>
+                                <p class="text-sm text-indigo-900 font-extrabold break-words">${current || 'BELUM DIISI'}</p>
+                                <p class="text-xs text-indigo-700 mt-1">DATA INI AKAN MUNCUL PADA BAGIAN "MENGETAHUI" DI SURAT CETAK.</p>
+                            </div>
 
-                        <div class="mb-3">
-                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">NAMA PEJABAT (MENGETAHUI)</label>
-                            <input id="kopNameInput" type="text" value="${draft}" oninput="state.kopMengetahuiDraft = this.value" placeholder="NAMA PEJABAT" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
-                        </div>
+                            <div class="mb-3">
+                                <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">NAMA PEJABAT</label>
+                                <input id="kopNameInput" type="text" value="${draft}" oninput="state.kopMengetahuiDraft = this.value" placeholder="NAMA PEJABAT" class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
+                            </div>
 
-                        <div class="mb-3">
-                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">NIP (KEPEGAWAIAN)</label>
-                            <input id="kopNipInput" type="text" value="${(state.kopMengetahuiNipDraft || state.kopMengetahuiNip || '').toString()}" oninput="state.kopMengetahuiNipDraft = this.value" placeholder="NIP. ............." class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
-                        </div>
+                            <div class="mb-3">
+                                <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">NIP (KEPEGAWAIAN)</label>
+                                <input id="kopNipInput" type="text" value="${(state.kopMengetahuiNipDraft || state.kopMengetahuiNip || '').toString()}" oninput="state.kopMengetahuiNipDraft = this.value" placeholder="NIP. ............." class="w-full p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm">
+                            </div>
 
-                        <div class="mb-3">
-                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">TANDA TANGAN / QR (OPSIONAL)</label>
-                            <input id="kopSignatureFile" type="file" accept="image/*" onchange="(function(ev){ const f=ev.target.files?.[0]; if(!f) return; const r=new FileReader(); r.onload=function(e){ state.kopMengetahuiSignatureDraft = e.target.result; render(); }; r.readAsDataURL(f); })(event)" class="block w-full text-xs sm:text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
-                            <p class="text-xs text-gray-500 mt-1">UPLOAD GAMBAR TANDA TANGAN / QR. FILE DISIMPAN SEBAGAI DATA URL (BASE64).</p>
-                            ${(state.kopMengetahuiSignatureDraft || state.kopMengetahuiSignature) ? `
-                                <div class="mt-2">
-                                    <img src="${state.kopMengetahuiSignatureDraft || state.kopMengetahuiSignature}" alt="TTD/QR PREVIEW" class="max-w-full max-h-32 rounded-lg border" />
-                                    <button type="button" onclick="state.kopMengetahuiSignatureDraft=''; render();" class="mt-2 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-300">HAPUS TANDA TANGAN</button>
+                            <div class="mb-3">
+                                <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">UPLOAD TANDA TANGAN (AKAN DIJADIKAN QR CODE)</label>
+                                <input id="kopSignatureFile" type="file" accept="image/*" onchange="handleKopSignatureUpload(event)" class="block w-full text-xs sm:text-sm text-gray-700 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+                                <p class="text-xs text-gray-500 mt-2">SARAN: GUNAKAN GAMBAR TANDA TANGAN HITAM DI ATAS PUTIH (FILE KECIL). SISTEM AKAN MENGUBAHNYA MENJADI QR CODE DAN MENYIMPANNYA.</p>
+                                <p class="text-xs text-gray-500 mt-1">UPLOAD TANDA TANGAN HARUS BERUPA GAMBAR (JPG/PNG). SETELAH DIUPLOAD, SISTEM AKAN MEMBUAT QR CODE (DENGAN LOGO BEA CUKAI DI TENGAH) DAN MENYIMPANNYA UNTUK TANDA TANGAN CETAK.</p>
+
+                                ${(state.kopMengetahuiSignatureDraft || state.kopMengetahuiSignature) ? `
+                                    <div class="mt-3">
+                                        <p class="text-xs text-gray-600 font-bold mb-2">PREVIEW QR TANDA TANGAN:</p>
+                                        <img src="${state.kopMengetahuiSignatureDraft || state.kopMengetahuiSignature}" alt="QR PREVIEW" class="max-w-full max-h-40 rounded-lg border bg-white p-2" />
+                                        <button type="button" onclick="state.kopMengetahuiSignatureDraft=''; render();" class="mt-2 px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-bold hover:bg-gray-300">HAPUS QR</button>
+                                    </div>
+                                ` : ''}
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD ADMIN (UNTUK KONFIRMASI)</label>
+                                <div class="relative">
+                                    <input id="kopNamePassword" type="password" value="${passDraft}" oninput="state.kopMengetahuiPassDraft = this.value" placeholder="MASUKKAN PASSWORD" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="current-password">
+                                    <button type="button" id="toggleKopNamePassword" onclick="togglePasswordVisibility('kopNamePassword','toggleKopNamePassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
+                                        <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
+                                        </svg>
+                                    </button>
                                 </div>
-                            ` : ''}
+                                <p class="text-xs text-gray-500 mt-1">⚠️ ANDA AKAN DIMINTA KONFIRMASI SEBELUM MENYIMPAN.</p>
+                            </div>
                         </div>
 
-                        <div class="mb-4">
-                            <label class="block text-xs sm:text-sm font-medium text-gray-700 mb-1">PASSWORD ADMIN (UNTUK KONFIRMASI)</label>
-                            <div class="relative">
-                                <input id="kopNamePassword" type="password" value="${passDraft}" oninput="state.kopMengetahuiPassDraft = this.value" placeholder="MASUKKAN PASSWORD" class="no-transform w-full pr-12 p-2.5 sm:p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm" inputmode="text" autocapitalize="off" autocomplete="current-password">
-                                <button type="button" id="toggleKopNamePassword" onclick="togglePasswordVisibility('kopNamePassword','toggleKopNamePassword')" class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100" aria-label="LIHAT PASSWORD">
-                                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.269-2.943-9.543-7a9.956 9.956 0 012.116-3.592m3.47-2.403A9.956 9.956 0 0112 5c4.478 0 8.269 2.943 9.543 7a9.957 9.957 0 01-4.043 5.197M15 12a3 3 0 00-3-3m0 0a2.99 2.99 0 00-2.12.879M12 9v0m9 12L3 3"></path>
-                                    </svg>
+                        <!-- FOOTER (STICKY) -->
+                        <div class="px-4 sm:px-6 py-4 border-t bg-white">
+                            <div class="flex gap-2">
+                                <button onclick="closeKopNameSettings()" class="flex-1 py-2.5 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 transition-colors text-sm">
+                                    BATAL
+                                </button>
+                                <button onclick="saveKopNameFromModal()" ${state.loading ? 'disabled' : ''} class="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm ${state.loading ? 'opacity-50' : ''}">
+                                    ${state.loading ? 'MENYIMPAN...' : 'SIMPAN'}
                                 </button>
                             </div>
-                            <p class="text-xs text-gray-500 mt-1">⚠️ ANDA AKAN DIMINTA KONFIRMASI SEBELUM MENYIMPAN.</p>
-                        </div>
-
-                        <div class="flex gap-2">
-                            <button onclick="closeKopNameSettings()" class="flex-1 py-2.5 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 transition-colors text-sm">
-                                BATAL
-                            </button>
-                            <button onclick="saveKopNameFromModal()" ${state.loading ? 'disabled' : ''} class="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm ${state.loading ? 'opacity-50' : ''}">
-                                ${state.loading ? 'MENYIMPAN...' : 'SIMPAN'}
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -2953,6 +3630,21 @@ Terima kasih.`
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
+            // QR library OFFLINE: paksa install ulang sekali saat load agar pasti tersedia
+            try {
+                if (typeof window !== 'undefined' && typeof window.__installOfflineQr === 'function') {
+                    window.__installOfflineQr();
+                }
+            } catch (e) {
+                console.error('QR OFFLINE FORCE INSTALL FAILED:', e);
+            }
+            try {
+                await ensureQrLibReady();
+                console.log('QR OFFLINE INIT OK');
+            } catch (e) {
+                console.error('QR OFFLINE INIT FAILED:', e);
+            }
+
             await checkWebsiteStatus(false);
             await fetchAdminWa(true);
             await fetchKopMengetahuiName(true);
