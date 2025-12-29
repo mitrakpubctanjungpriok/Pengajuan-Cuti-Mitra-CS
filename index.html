@@ -1676,30 +1676,6 @@ function addQRButtonToDetailModal() {
   <div class="no-print">
     <button class="btn" onclick="window.print()">🖨️ CETAK DOKUMEN</button>
   </div>
-  <!-- QR Modal -->
-<div class="modal fade" id="qrModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">
-          <i class="bi bi-qr-code"></i> QR Code Verifikasi
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="qrModalBody">
-        <!-- Content akan diisi oleh JavaScript -->
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-          Tutup
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Include QR Code Library -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </body>
 </html>
             `);
@@ -3793,5 +3769,29 @@ Terima kasih.`
             await fetchEmployees();
         });
     </script>
+<!-- QR Modal -->
+<div class="modal fade" id="qrModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-qr-code"></i> QR Code Verifikasi
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="qrModalBody">
+        <!-- Content akan diisi oleh JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Include QR Code Library -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </body>
 </html>
