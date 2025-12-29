@@ -771,6 +771,124 @@
             }
         }
 
+        // QR CODE FUNCTIONS
+
+function showQRVerificationModal(leaveId, employeeName) {
+  // Get QR data from Google Apps Script
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.success) {
+        displayQRModal(result.qrData, employeeName);
+      } else {
+        alert('Gagal generate QR: ' + result.error);
+      }
+    })
+    .withFailureHandler(function(error) {
+      alert('Error: ' + error.message);
+    })
+    .getQRData(leaveId);
+}
+
+function displayQRModal(qrData, employeeName) {
+  const modalContent = `
+    <div class="text-center">
+      <h5>QR Code Verifikasi Cuti</h5>
+      <p class="text-muted">${employeeName}</p>
+      
+      <div id="qrCodeDisplay" class="my-3" style="display: inline-block; padding: 15px; background: white; border-radius: 10px; border: 1px solid #dee2e6;">
+        <!-- QR akan digenerate di sini -->
+      </div>
+      
+      <div class="mb-3">
+        <p class="mb-1"><strong>Status:</strong> 
+          <span class="badge ${qrData.isApproved ? 'bg-success' : 'bg-warning'}">
+            ${qrData.status}
+          </span>
+        </p>
+        <p class="mb-1"><strong>ID Pengajuan:</strong> ${qrData.id}</p>
+        
+        <div class="input-group mt-3">
+          <input type="text" class="form-control" id="qrUrlInput" 
+                 value="${qrData.url}" readonly>
+          <button class="btn btn-outline-secondary" type="button" onclick="copyQRUrl()">
+            <i class="bi bi-clipboard"></i>
+          </button>
+        </div>
+        
+        <small class="text-muted d-block mt-1">
+          Scan QR code untuk verifikasi dan print surat
+        </small>
+      </div>
+      
+      <div class="d-flex justify-content-center gap-2">
+        <button class="btn btn-primary" onclick="downloadQRCode()">
+          <i class="bi bi-download"></i> Download QR
+        </button>
+        <a href="${qrData.url}" target="_blank" class="btn btn-success">
+          <i class="bi bi-printer"></i> Print Surat
+        </a>
+      </div>
+    </div>
+  `;
+  
+  // Update modal
+  $('#qrModal .modal-title').html('<i class="bi bi-qr-code"></i> QR Code Verifikasi');
+  $('#qrModal .modal-body').html(modalContent);
+  
+  // Generate QR Code
+  setTimeout(() => {
+    new QRCode(document.getElementById("qrCodeDisplay"), {
+      text: qrData.url,
+      width: 200,
+      height: 200,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H
+    });
+  }, 100);
+  
+  // Show modal
+  $('#qrModal').modal('show');
+}
+
+function copyQRUrl() {
+  const input = document.getElementById('qrUrlInput');
+  input.select();
+  document.execCommand('copy');
+  alert('URL berhasil disalin!');
+}
+
+function downloadQRCode() {
+  const canvas = document.querySelector('#qrCodeDisplay canvas');
+  if (canvas) {
+    const link = document.createElement('a');
+    link.download = `cuti-verifikasi-${new Date().getTime()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+}
+
+// Tambahkan tombol QR di detail pengajuan
+function addQRButtonToDetailModal() {
+  // Cari modal detail dan tambahkan tombol QR
+  // Contoh: di fungsi showDetail() Anda, tambahkan:
+  /*
+  function showDetail(rowIndex, id, nama) {
+    // ... kode existing ...
+    
+    // Di bagian tombol, tambahkan:
+    const actionButtons = `
+      <div class="d-flex gap-2">
+        <!-- tombol existing -->
+        <button class="btn btn-info" onclick="showQRVerificationModal('${id}', '${nama}')">
+          <i class="bi bi-qr-code"></i> QR Code
+        </button>
+      </div>
+    `;
+  }
+  */
+}
+        
         // =====================================================
         // PASSWORD TOGGLE (SHOW/HIDE)
         // =====================================================
@@ -1558,6 +1676,30 @@
   <div class="no-print">
     <button class="btn" onclick="window.print()">🖨️ CETAK DOKUMEN</button>
   </div>
+  <!-- QR Modal -->
+<div class="modal fade" id="qrModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-qr-code"></i> QR Code Verifikasi
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="qrModalBody">
+        <!-- Content akan diisi oleh JavaScript -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Include QR Code Library -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
 </body>
 </html>
             `);
