@@ -59,6 +59,7 @@
         const state = {
             isAdminLoggedIn: false,
             adminUsername: 'admin',
+            userRole: 'admin',
             showAdminLogin: false,
             showChangePassword: false,
             showSettings: false,
@@ -99,7 +100,8 @@
                 usedLeave: 0,
                 supervisorName: '',
                 supervisorSalutation: '',
-                supervisorPhone: ''
+                supervisorPhone: '',
+                maxLeaveRequestDays: 2
             },
             editingEmployee: null,
             employeeSearchTerm: '',
@@ -141,12 +143,33 @@
             const d = new Date(dateStr);
             if (isNaN(d.getTime())) return '-';
 
-            const dd = String(d.getDate()).padStart(2, '0');
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            const yyyy = d.getFullYear();
-            const hh = String(d.getHours()).padStart(2, '0');
-            const min = String(d.getMinutes()).padStart(2, '0');
-            return `${dd}/${mm}/${yyyy} - ${hh}:${min} WIB`;
+            // PAKSA WIB (ASIA/JAKARTA) AGAR KONSISTEN DI SEMUA DEVICE
+            try {
+                const parts = new Intl.DateTimeFormat('id-ID', {
+                    timeZone: 'Asia/Jakarta',
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).formatToParts(d);
+
+                const get = (type) => (parts.find(p => p.type === type) || {}).value || '';
+                const dd = get('day');
+                const mm = get('month');
+                const yyyy = get('year');
+                const hh = get('hour');
+                const min = get('minute');
+                return `${dd}/${mm}/${yyyy} - ${hh}:${min} WIB`;
+            } catch (e) {
+                const dd = String(d.getDate()).padStart(2, '0');
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const yyyy = d.getFullYear();
+                const hh = String(d.getHours()).padStart(2, '0');
+                const min = String(d.getMinutes()).padStart(2, '0');
+                return `${dd}/${mm}/${yyyy} - ${hh}:${min} WIB`;
+            }
         }
 
         function calculateEndDate(startDate, duration) {
@@ -163,6 +186,14 @@
             const s = new Date(start);
             const e = new Date(end);
             return Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
+        }
+
+        function formatLamaCuti(val) {
+            const v = String(val || '').trim();
+            if (!v) return '-';
+            const n = parseInt(v);
+            if (!isNaN(n)) return `${n} HARI`;
+            return v.toUpperCase();
         }
 
         function getSupervisorNameForRequest(req) {
@@ -192,7 +223,7 @@
                 label: 'KONFIRMASI PERSETUJUAN',
                 message: ({ salutation, supervisorName, nama, jenisCuti, tanggal, baseUrl }) => {
                     const to = `${salutation ? salutation + ' ' : ''}${supervisorName || 'Pengawas'}`;
-                    return `Yth. ${to},\n\nDengan hormat, saya Admin Sistem Cuti Mitra KPU BC Tanjung Priok.\n\nMohon konfirmasi persetujuan untuk pengajuan cuti berikut:\n\n📋 *DATA PENGAJUAN*\n• Nama Karyawan: *${nama}*\n• Jenis Cuti: *${jenisCuti}*\n• Tanggal: *${tanggal}*\n\nMohon balas pesan ini dengan:\n✅ *SETUJU* - jika menyetujui pengajuan\n❌ *TIDAK SETUJU* - jika menolak pengajuan\n\nTerima kasih.\n\n_Pesan otomatis dari Sistem Izin Cuti_\n${baseUrl}`;
+                    return `Yth. ${to},\n\nDengan hormat, saya Admin Sistem Cuti KPU BC Tanjung Priok.\n\nMohon konfirmasi persetujuan untuk pengajuan cuti berikut:\n\n📋 *DATA PENGAJUAN*\n• Nama Karyawan: *${nama}*\n• Jenis Cuti: *${jenisCuti}*\n• Tanggal: *${tanggal}*\n\nMohon balas pesan ini dengan:\n✅ *SETUJU* - jika menyetujui pengajuan\n❌ *TIDAK SETUJU* - jika menolak pengajuan\n\nTerima kasih.\n\n_Pesan otomatis dari Sistem Izin Cuti_\n${baseUrl}`;
                 }
             },
             {
@@ -200,7 +231,7 @@
                 label: 'REMINDER PERSETUJUAN',
                 message: ({ salutation, supervisorName, nama, jenisCuti, tanggal }) => {
                     const to = `${salutation ? salutation + ' ' : ''}${supervisorName || 'Pengawas'}`;
-                    return `Yth. ${to},\n\nMohon maaf mengganggu. Ini adalah pengingat untuk konfirmasi pengajuan cuti:\n\n• Nama: *${nama}*\n• Jenis: *${jenisCuti}*\n• Tanggal: *${tanggal}*\n\nMohon balas:\n✅ *SETUJU* atau ❌ *TIDAK SETUJU*\n\nTerima kasih.\n\n_Sistem Izin Cuti Mitra KPU BC Tanjung Priok_`;
+                    return `Yth. ${to},\n\nMohon maaf mengganggu. Ini adalah pengingat untuk konfirmasi pengajuan cuti:\n\n• Nama: *${nama}*\n• Jenis: *${jenisCuti}*\n• Tanggal: *${tanggal}*\n\nMohon balas:\n✅ *SETUJU* atau ❌ *TIDAK SETUJU*\n\nTerima kasih.\n\n_Sistem Izin Cuti KPU BC Tanjung Priok_`;
                 }
             },
             {
@@ -615,13 +646,20 @@
         // ==================== API FUNCTIONS ====================
         async function apiCall(action, data = {}) {
             try {
+                // Pakai Content-Type text/plain agar tidak kena preflight CORS dan tetap bisa baca respon JSON
                 const response = await fetch(CONFIG.GOOGLE_SCRIPT_URL, {
                     method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({ action, ...data })
                 });
-                return { success: true };
+
+                const text = await response.text();
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    // fallback jika respon bukan JSON
+                    return { success: true };
+                }
             } catch (error) {
                 console.error('API Error:', error);
                 return { success: false, error: error.message };
@@ -694,12 +732,43 @@
             };
 
             try {
-                await apiCall('submitLeave', data);
+                // CEK: apakah sudah ada pengajuan hari ini (WIB)
+                const todayInfo = await apiGet('getTodaySubmission', { employeeId: String(state.selectedEmployee.id || '').trim() });
+                if (todayInfo && todayInfo.success && todayInfo.data && todayInfo.data.exists) {
+                    const st = String(todayInfo.data.status || '').toUpperCase();
+                    if (st && st !== 'MENUNGGU') {
+                        state.loading = false;
+                        render();
+                        alert('ANDA SUDAH MEMBUAT PENGAJUAN HARI INI DAN SUDAH DIPROSES. SILAKAN AJUKAN KEMBALI BESOK.');
+                        return;
+                    }
+                    // Jika MENUNGGU: lanjut upsert (update yang lama jadi data terbaru)
+                }
+
+                // UPSERT: jika karyawan submit di tanggal yang sama, data akan di-update (bukan tambah baris baru)
+                const res = await apiCall('upsertLeaveToday', data);
+                if (res && res.success === false) {
+                    state.loading = false;
+                    render();
+                    alert(res.error || 'GAGAL MENGIRIM PENGAJUAN!');
+                    return;
+                }
+
                 state.submittedData = {
                     ...data,
                     terpakai: calculateDuration(data.tanggalMulai, data.tanggalSelesai),
                     sisa: state.selectedEmployee.remainingLeave - (data.jenisCuti === 'CUTI TAHUNAN' ? calculateDuration(data.tanggalMulai, data.tanggalSelesai) : 0)
                 };
+
+                // SEKALI PAKAI: setelah submit berhasil, batas maksimal kembali ke 2 hari
+                try {
+                    const idx = state.employees.findIndex(e => String(e.id).toUpperCase() === String(state.selectedEmployee.id).toUpperCase());
+                    if (idx >= 0) state.employees[idx].maxLeaveRequestDays = 2;
+                    state.selectedEmployee.maxLeaveRequestDays = 2;
+                } catch (e) {
+                    // ignore
+                }
+
                 state.page = 'result';
             } catch (error) {
                 alert('GAGAL MENGIRIM PENGAJUAN!');
@@ -716,12 +785,18 @@
             render();
 
             try {
-                await apiCall('updateLeaveStatus', {
+                const updated = await apiCall('updateLeaveStatus', {
                     requestId: request.rowIndex,
                     status: status,
                     adminName: state.adminUsername,
                     processedDate: new Date().toISOString()
                 });
+                if (!updated || updated.success === false) {
+                    alert((updated && updated.error) ? updated.error : 'GAGAL MENGUPDATE STATUS!');
+                    state.loading = false;
+                    render();
+                    return;
+                }
                 
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 await loadLeaveRequests();
@@ -926,6 +1001,9 @@
             const showFotoUpload = state.formData.jenisCuti === 'CUTI SAKIT';
             const duration = calculateDuration(state.formData.tanggalMulai, state.formData.tanggalSelesai);
 
+            // MAKSIMAL LAMA PENGAJUAN CUTI (DEFAULT 2 HARI, BISA DIATUR PER KARYAWAN)
+            const maxDays = Math.min(12, Math.max(1, parseInt(emp?.maxLeaveRequestDays ?? 2)));
+
             return `
                 <div class="max-w-2xl mx-auto p-4 sm:p-8">
                     <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
@@ -991,9 +1069,13 @@
                                 <label class="block text-sm font-medium text-gray-700 mb-1">LAMA PENGAMBILAN CUTI *</label>
                                 <select id="lamaCuti" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateLamaCuti(this.value)">
                                     <option value="">-- PILIH DURASI --</option>
-                                    <option value="1" ${state.formData.lamaCuti === '1' ? 'selected' : ''}>1 HARI</option>
-                                    <option value="2" ${state.formData.lamaCuti === '2' ? 'selected' : ''}>2 HARI</option>
+                                    ${Array.from({ length: maxDays }, (_, i) => {
+                                        const n = i + 1;
+                                        return `<option value="${n}" ${state.formData.lamaCuti === String(n) ? 'selected' : ''}>${n} HARI</option>`;
+                                    }).join('')}
                                 </select>
+                                <p class="text-xs text-gray-500 mt-1">MAKSIMAL ${maxDays} HARI (DIATUR OLEH ADMIN)</p>
+                                <p class="text-xs text-gray-500">CATATAN: BATAS MAKSIMAL INI SEKALI PAKAI DAN AKAN RESET KE 2 HARI SETELAH PENGAJUAN DIKIRIM</p>
                             </div>
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1084,45 +1166,83 @@
         function renderResultPage() {
             const data = state.submittedData;
             return `
-                <div class="max-w-xl mx-auto p-4 sm:p-8">
-                    <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-8 text-center">
-                        <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <svg class="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </div>
-                        
-                        <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">PENGAJUAN BERHASIL!</h2>
-                        <p class="text-gray-600 mb-2">CUTI ANDA TELAH DIAJUKAN DAN MENUNGGU PERSETUJUAN ADMIN</p>
-                        <p class="text-sm text-gray-500 mb-2">${formatDate(new Date())} - ${formatTime(new Date())}</p>
-                        <p class="text-sm text-indigo-600 mb-6">📧 NOTIFIKASI EMAIL TELAH DIKIRIM KE ADMIN</p>
+                <div class="max-w-2xl mx-auto p-4 sm:p-8">
+                    <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
+                        <div class="text-center">
+                            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-10 h-10 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </div>
 
-                        <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-6 text-white mb-6">
-                            <div class="text-xl font-bold mb-4">${data.employeeName}</div>
-                            <div class="grid grid-cols-2 gap-4">
-                                <div class="bg-white/20 rounded-lg p-3">
-                                    <div class="text-sm opacity-80">TERPAKAI</div>
-                                    <div class="text-2xl font-bold">${data.terpakai} HARI</div>
+                            <h2 class="text-2xl sm:text-3xl font-extrabold text-gray-800">PENGAJUAN BERHASIL!</h2>
+                            <p class="mt-1 text-gray-600">CUTI ANDA TELAH DIAJUKAN DAN MENUNGGU PERSETUJUAN ADMIN</p>
+
+                            <div class="mt-4 inline-flex flex-col items-center gap-1 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                                <div class="text-xs text-gray-500">WAKTU PENGAJUAN</div>
+                                <div class="text-sm font-semibold text-gray-700">${formatDate(new Date())}</div>
+                                <div class="text-sm font-extrabold text-indigo-700">${formatTime(new Date())}</div>
+                            </div>
+
+                            <div class="mt-4 text-sm text-indigo-700 font-semibold">📧 NOTIFIKASI EMAIL TELAH DIKIRIM KE ADMIN</div>
+                        </div>
+
+                        <div class="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-5 sm:p-6 text-white">
+                            <div class="text-center">
+                                <div class="text-xs opacity-90">KARYAWAN</div>
+                                <div class="mt-1 text-xl sm:text-2xl font-extrabold tracking-tight">${data.employeeName}</div>
+                            </div>
+
+                            <div class="mt-5 grid grid-cols-2 gap-3 sm:gap-4">
+                                <div class="rounded-xl bg-white/15 ring-1 ring-white/20 p-3 text-center">
+                                    <div class="text-xs opacity-85">TERPAKAI</div>
+                                    <div class="mt-1 text-2xl font-extrabold">${data.terpakai}</div>
+                                    <div class="text-xs opacity-85">HARI</div>
                                 </div>
-                                <div class="bg-white/20 rounded-lg p-3">
-                                    <div class="text-sm opacity-80">SISA</div>
-                                    <div class="text-2xl font-bold">${data.sisa} HARI</div>
+                                <div class="rounded-xl bg-white/15 ring-1 ring-white/20 p-3 text-center">
+                                    <div class="text-xs opacity-85">SISA</div>
+                                    <div class="mt-1 text-2xl font-extrabold">${data.sisa}</div>
+                                    <div class="text-xs opacity-85">HARI</div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="border rounded-xl p-4 text-left space-y-3 mb-6">
-                            <div class="flex justify-between"><span class="text-gray-600">JABATAN:</span><span class="font-semibold">${data.jabatan}</span></div>
-                            <div class="flex justify-between"><span class="text-gray-600">UNIT KERJA:</span><span class="font-semibold">${data.unitKerja}</span></div>
-                            <div class="flex justify-between"><span class="text-gray-600">JENIS CUTI:</span><span class="font-semibold">${data.jenisCuti}</span></div>
-                            <div class="flex justify-between"><span class="text-gray-600">TANGGAL:</span><span class="font-semibold">${formatDateShort(data.tanggalMulai)} - ${formatDateShort(data.tanggalSelesai)}</span></div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-600">STATUS:</span>
-                                <span class="px-3 py-1 bg-yellow-100 text-yellow-700 border border-yellow-300 rounded-full text-sm font-semibold">MENUNGGU</span>
+                        <div class="mt-6 rounded-2xl border border-gray-200 bg-white">
+                            <div class="px-4 sm:px-5 py-3 border-b border-gray-100">
+                                <div class="text-sm font-extrabold text-gray-800">DETAIL PENGAJUAN</div>
                             </div>
+
+                            <dl class="px-4 sm:px-5">
+                                <div class="grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] gap-3 py-3 border-b border-gray-100">
+                                    <dt class="text-gray-600 whitespace-nowrap">JABATAN</dt>
+                                    <dd class="font-semibold text-gray-900 text-right sm:text-left">${data.jabatan}</dd>
+                                </div>
+                                <div class="grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] gap-3 py-3 border-b border-gray-100">
+                                    <dt class="text-gray-600 whitespace-nowrap">UNIT KERJA</dt>
+                                    <dd class="font-semibold text-gray-900 text-right sm:text-left">${data.unitKerja}</dd>
+                                </div>
+                                <div class="grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] gap-3 py-3 border-b border-gray-100">
+                                    <dt class="text-gray-600 whitespace-nowrap">JENIS CUTI</dt>
+                                    <dd class="font-semibold text-gray-900 text-right sm:text-left">${data.jenisCuti}</dd>
+                                </div>
+                                <div class="grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] gap-3 py-3 border-b border-gray-100">
+                                    <dt class="text-gray-600 whitespace-nowrap">LAMA CUTI</dt>
+                                    <dd class="font-semibold text-gray-900 text-right sm:text-left">${formatLamaCuti(data.lamaCuti)}</dd>
+                                </div>
+                                <div class="grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] gap-3 py-3 border-b border-gray-100">
+                                    <dt class="text-gray-600 whitespace-nowrap">TANGGAL</dt>
+                                    <dd class="font-semibold text-gray-900 text-right sm:text-left">${formatDateShort(data.tanggalMulai)} - ${formatDateShort(data.tanggalSelesai)}</dd>
+                                </div>
+                                <div class="grid grid-cols-[140px_1fr] sm:grid-cols-[180px_1fr] gap-3 py-3">
+                                    <dt class="text-gray-600 whitespace-nowrap">STATUS</dt>
+                                    <dd class="text-right sm:text-left">
+                                        <span class="inline-flex items-center px-3 py-1 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded-full text-xs sm:text-sm font-extrabold">MENUNGGU</span>
+                                    </dd>
+                                </div>
+                            </dl>
                         </div>
 
-                        <button onclick="goToSelect()" class="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow hover:bg-indigo-700 transition">
+                        <button onclick="goToSelect()" class="mt-6 w-full py-3 bg-indigo-600 text-white font-extrabold rounded-xl shadow hover:bg-indigo-700 transition">
                             KEMBALI KE HALAMAN UTAMA
                         </button>
                     </div>
@@ -1131,11 +1251,18 @@
         }
 
         function renderAdminPage() {
-            const pending = state.leaveRequests.filter(r => r.status === 'MENUNGGU');
-            const approved = state.leaveRequests.filter(r => r.status === 'DISETUJUI');
-            const rejected = state.leaveRequests.filter(r => r.status === 'DITOLAK');
+            const byNewest = (a, b) => {
+                const ta = a && a.tanggalPengajuan ? new Date(a.tanggalPengajuan).getTime() : 0;
+                const tb = b && b.tanggalPengajuan ? new Date(b.tanggalPengajuan).getTime() : 0;
+                if (tb !== ta) return tb - ta;
+                return (b.rowIndex || 0) - (a.rowIndex || 0);
+            };
+
+            const pending = state.leaveRequests.filter(r => r.status === 'MENUNGGU').sort(byNewest);
+            const approved = state.leaveRequests.filter(r => r.status === 'DISETUJUI').sort(byNewest);
+            const rejected = state.leaveRequests.filter(r => r.status === 'DITOLAK').sort(byNewest);
             
-            let filteredHistory = [...approved, ...rejected];
+            let filteredHistory = [...approved, ...rejected].sort(byNewest);
             if (state.adminFilterDate) {
                 // tanggalPengajuan bisa berupa ISO datetime (yyyy-mm-ddTHH:mm...), jadi ambil 10 char
                 filteredHistory = filteredHistory.filter(r => r.tanggalPengajuan && String(r.tanggalPengajuan).substring(0,10) === state.adminFilterDate);
@@ -1150,7 +1277,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                 </svg>
-                                <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">PANEL ADMIN</h1>
+                                <h1 class="text-2xl sm:text-3xl font-bold text-gray-800">${(state.adminUsername || 'admin') === 'manager' ? 'PANEL MANAGER' : 'PANEL ADMIN'}</h1>
                             </div>
 
                             <div class="flex flex-col sm:flex-row items-center lg:items-end justify-center lg:justify-end gap-3">
@@ -1286,38 +1413,52 @@
 
         function renderAdminLoginModal() {
             return `
-                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-6">LOGIN ADMIN</h2>
-                        <form id="loginForm" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">PASSWORD</label>
-                                <div class="relative">
-                                    <input type="password" id="loginPassword" class="password-field w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 pr-10" placeholder="MASUKKAN PASSWORD">
-                                    <button type="button" onclick="togglePasswordVisibility('loginPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                                        </svg>
-                                    </button>
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 overflow-y-auto">
+                    <div class="min-h-[100svh] flex items-start sm:items-center justify-center p-4 pb-28 sm:pb-4">
+                        <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-auto">
+                            <h2 class="text-2xl font-bold text-gray-800 mb-2">LOGIN PANEL</h2>
+                            <div class="text-xs text-gray-500 mb-4">PILIH PANEL LALU MASUKKAN PASSWORD</div>
+                            <form id="loginForm" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">PILIH PANEL</label>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <button type="button" onclick="setLoginRole('admin')" class="px-3 py-2 rounded-lg border-2 ${state.userRole === 'admin' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}">PANEL ADMIN</button>
+                                        <button type="button" onclick="setLoginRole('manager')" class="px-3 py-2 rounded-lg border-2 ${state.userRole === 'manager' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}">PANEL MANAGER</button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="flex gap-3">
-                                <button type="button" onclick="closeAdminLogin()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">BATAL</button>
-                                <button type="submit" class="flex-1 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition" id="loginBtn">LOGIN</button>
-                            </div>
-                        </form>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">PASSWORD</label>
+                                    <div class="relative">
+                                        <input type="password" id="loginPassword" autocomplete="current-password" class="password-field w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 pr-10" placeholder="MASUKKAN PASSWORD">
+                                        <button type="button" onclick="togglePasswordVisibility('loginPassword')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3">
+                                    <button type="button" onclick="closeAdminLogin()" class="flex-1 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">BATAL</button>
+                                    <button type="submit" class="flex-1 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition" id="loginBtn">LOGIN</button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             `;
         }
 
         function renderSettingsModal() {
+            const isManager = (state.adminUsername || 'admin') === 'manager';
             return `
                 <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
                         <div class="flex justify-between items-center mb-6 border-b pb-4">
-                            <h2 class="text-2xl font-bold text-gray-800">⚙️ PENGATURAN</h2>
+                            <div>
+                                <h2 class="text-2xl font-bold text-gray-800">⚙️ PENGATURAN</h2>
+                                <div class="text-xs text-gray-500 mt-1">MODE: ${isManager ? 'PANEL MANAGER' : 'PANEL ADMIN'}</div>
+                            </div>
                             <button onclick="closeSettings()" class="p-2 hover:bg-gray-100 rounded-lg">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -1327,24 +1468,32 @@
                         <div class="space-y-3">
                             <button onclick="openChangePassword()" class="w-full p-4 bg-amber-50 border border-amber-200 rounded-lg text-left hover:bg-amber-100 transition">
                                 <div class="font-semibold text-amber-700">🔐 GANTI PASSWORD</div>
-                                <div class="text-sm text-amber-600">UBAH PASSWORD LOGIN ADMIN</div>
+                                <div class="text-sm text-amber-600">UBAH PASSWORD LOGIN ${isManager ? 'MANAGER' : 'ADMIN'}</div>
                             </button>
+
+                            ${isManager ? '' : `
                             <button onclick="openEmployeeForm()" class="w-full p-4 bg-green-50 border border-green-200 rounded-lg text-left hover:bg-green-100 transition">
                                 <div class="font-semibold text-green-700">👥 KELOLA KARYAWAN</div>
                                 <div class="text-sm text-green-600">TAMBAH, EDIT, HAPUS KARYAWAN</div>
                             </button>
+                            `}
+
                             <button onclick="openWhatsAppSettings()" class="w-full p-4 bg-blue-50 border border-blue-200 rounded-lg text-left hover:bg-blue-100 transition">
                                 <div class="font-semibold text-blue-700">📱 WHATSAPP ADMIN</div>
                                 <div class="text-sm text-blue-600">UBAH NOMOR WHATSAPP ADMIN</div>
                             </button>
+
                             <button onclick="openMaintenanceSettings()" class="w-full p-4 bg-purple-50 border border-purple-200 rounded-lg text-left hover:bg-purple-100 transition">
                                 <div class="font-semibold text-purple-700">🔧 WEBSITE AKTIF/NONAKTIF</div>
                                 <div class="text-sm text-purple-600">MODE MAINTENANCE</div>
                             </button>
+
+                            ${isManager ? '' : `
                             <button onclick="openKopSettings()" class="w-full p-4 bg-indigo-50 border border-indigo-200 rounded-lg text-left hover:bg-indigo-100 transition">
                                 <div class="font-semibold text-indigo-700">📋 NAMA KOP SURAT</div>
                                 <div class="text-sm text-indigo-600">UBAH NAMA PEJABAT DAN NIP</div>
                             </button>
+                            `}
                         </div>
                     </div>
                 </div>
@@ -1352,6 +1501,7 @@
         }
 
         function renderChangePasswordModal() {
+            const isManager = (state.adminUsername || 'admin') === 'manager';
             return `
                 <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
                     <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
@@ -1359,7 +1509,7 @@
                         <form id="changePasswordForm" class="space-y-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">USERNAME</label>
-                                <input type="text" value="ADMIN" disabled class="w-full p-3 border-2 border-gray-200 rounded-lg bg-gray-100 opacity-50">
+                                <input type="text" value="${isManager ? 'MANAGER' : 'ADMIN'}" disabled class="w-full p-3 border-2 border-gray-200 rounded-lg bg-gray-100 opacity-50">
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">PASSWORD LAMA</label>
@@ -1433,6 +1583,12 @@
                                         <label class="block text-sm font-medium text-gray-700 mb-1">CUTI TERPAKAI (0-12 HARI) *</label>
                                         <input type="number" id="empUsedLeave" class="w-full p-2 border-2 border-gray-200 rounded-lg" min="0" max="12" value="${state.employeeFormData.usedLeave}">
                                         <p class="text-xs text-gray-500 mt-1">MASUKKAN JUMLAH CUTI YANG SUDAH TERPAKAI (0-12)</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">MAKSIMAL LAMA PENGAJUAN CUTI (1-12 HARI)</label>
+                                        <input type="number" id="empMaxLeaveDays" class="w-full p-2 border-2 border-gray-200 rounded-lg" min="1" max="12" value="${state.employeeFormData.maxLeaveRequestDays ?? 2}">
+                                        <p class="text-xs text-gray-500 mt-1">DEFAULT 2 HARI. BISA DIATUR PER KARYAWAN (MAKS 12)</p>
+                                        <p class="text-xs text-gray-500">CATATAN: INI SEKALI PAKAI. SETELAH KARYAWAN SUBMIT, AKAN KEMBALI KE 2 HARI</p>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-1">NAMA PENGAWAS</label>
@@ -1774,6 +1930,7 @@
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Unit Kerja</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.unitKerja}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Jenis Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.jenisCuti}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Alasan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.alasan}</td></tr>
+                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Lama Pengambilan Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatLamaCuti(data.lamaCuti)}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Tanggal Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatDateShort(data.tanggalMulai)} s.d. ${formatDateShort(data.tanggalSelesai)}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Alamat Selama Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.alamat}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">No. Telepon</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.telepon}</td></tr>
@@ -1834,16 +1991,37 @@
             // Login form
             const loginForm = document.getElementById('loginForm');
             if (loginForm) {
+                // Fix HP: saat fokus input, scroll modal agar tidak ketutup keyboard
+                const pwd = document.getElementById('loginPassword');
+                if (pwd) {
+                    const scrollInto = () => {
+                        // timeout kecil agar keyboard sempat muncul
+                        setTimeout(() => {
+                            try {
+                                pwd.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            } catch (e) {
+                                // fallback
+                                pwd.scrollIntoView(true);
+                            }
+                        }, 250);
+                    };
+                    pwd.addEventListener('focus', scrollInto);
+                    pwd.addEventListener('click', scrollInto);
+                }
+
                 loginForm.onsubmit = async (e) => {
                     e.preventDefault();
                     const password = document.getElementById('loginPassword').value;
-                    
+                    const role = state.userRole || 'admin';
+                    const username = role === 'manager' ? 'manager' : 'admin';
+
                     document.getElementById('loginBtn').textContent = 'MEMVERIFIKASI...';
                     
                     try {
-                        const result = await apiGet('verifyAdmin', { username: 'admin', password });
+                        const result = await apiGet('verifyAdmin', { username, password });
                         if (result.success) {
                             state.isAdminLoggedIn = true;
+                            state.adminUsername = username;
                             state.showAdminLogin = false;
                             state.page = 'admin';
                             await loadLeaveRequests();
@@ -1877,6 +2055,9 @@
                     const oldPwd = document.getElementById('oldPassword').value;
                     const newPwd = document.getElementById('newPassword').value;
                     const confirmPwd = document.getElementById('confirmPassword').value;
+
+                    const isManager = (state.adminUsername || 'admin') === 'manager';
+                    const action = isManager ? 'changePasswordManager' : 'changePasswordAdmin';
                     
                     if (newPwd.length < 6) {
                         alert('PASSWORD BARU MINIMAL 6 KARAKTER!');
@@ -1888,7 +2069,11 @@
                     }
                     
                     try {
-                        const result = await apiCall('changePassword', { oldPassword: oldPwd, newPassword: newPwd });
+                        const result = await apiCall(action, { oldPassword: oldPwd, newPassword: newPwd });
+                        if (!result || result.success === false) {
+                            alert((result && result.error) ? result.error : 'GAGAL MENGUBAH PASSWORD!');
+                            return;
+                        }
                         alert('PASSWORD BERHASIL DIUBAH!');
                         closeChangePassword();
                     } catch (error) {
@@ -1906,13 +2091,18 @@
                     const pwd = document.getElementById('waPassword').value;
                     
                     try {
-                        const verify = await apiGet('verifyAdmin', { username: 'admin', password: pwd });
+                        const currentUser = (state.adminUsername || 'admin');
+                        const verify = await apiGet('verifyAdmin', { username: currentUser, password: pwd });
                         if (!verify.success) {
                             alert('PASSWORD SALAH!');
                             return;
                         }
                         
-                        await apiCall('updateSettings', { adminWa: wa });
+                        const saved = await apiCall('updateSettings', { adminWa: wa });
+                        if (!saved || saved.success === false) {
+                            alert((saved && saved.error) ? saved.error : 'GAGAL MENYIMPAN!');
+                            return;
+                        }
                         state.settings.adminWa = wa;
                         alert('NOMOR WHATSAPP BERHASIL DIUBAH!');
                         closeWhatsAppSettings();
@@ -1932,13 +2122,18 @@
                     const pwd = document.getElementById('kopPassword').value;
                     
                     try {
-                        const verify = await apiGet('verifyAdmin', { username: 'admin', password: pwd });
+                        const currentUser = (state.adminUsername || 'admin');
+                        const verify = await apiGet('verifyAdmin', { username: currentUser, password: pwd });
                         if (!verify.success) {
                             alert('PASSWORD SALAH!');
                             return;
                         }
                         
-                        await apiCall('updateSettings', { kopMengetahuiName: name, kopMengetahuiNip: nip });
+                        const saved = await apiCall('updateSettings', { kopMengetahuiName: name, kopMengetahuiNip: nip });
+                        if (!saved || saved.success === false) {
+                            alert((saved && saved.error) ? saved.error : 'GAGAL MENYIMPAN!');
+                            return;
+                        }
                         state.settings.kopMengetahuiName = name;
                         state.settings.kopMengetahuiNip = nip;
                         alert('DATA KOP SURAT BERHASIL DIUBAH!');
@@ -1974,6 +2169,14 @@
             }
 
             const duration = calculateDuration(state.formData.tanggalMulai, state.formData.tanggalSelesai);
+
+            // Validasi maksimal lama pengajuan per karyawan
+            const maxDays = Math.min(12, Math.max(1, parseInt(state.selectedEmployee?.maxLeaveRequestDays ?? 2)));
+            if (duration > maxDays) {
+                alert(`MAKSIMAL LAMA PENGAJUAN UNTUK ANDA ADALAH ${maxDays} HARI!`);
+                return false;
+            }
+
             if (state.formData.jenisCuti === 'CUTI TAHUNAN' && duration > state.selectedEmployee.remainingLeave) {
                 alert('SISA CUTI TIDAK MENCUKUPI!');
                 return false;
@@ -2167,9 +2370,21 @@
         window.openAdminLogin = function() {
             state.showAdminLogin = true;
             state.isModalOpen = true;
+            // default SELALU pilih admin setiap buka modal (agar tidak nyangkut ke manager)
+            state.userRole = 'admin';
             pauseAutoRefresh();
             render();
             // Fokus agar langsung bisa mengetik
+            setTimeout(() => {
+                const el = document.getElementById('loginPassword');
+                if (el) el.focus();
+            }, 80);
+        };
+
+        window.setLoginRole = function(role) {
+            state.userRole = (role === 'manager') ? 'manager' : 'admin';
+            // rerender modal agar tombol aktif berubah
+            render();
             setTimeout(() => {
                 const el = document.getElementById('loginPassword');
                 if (el) el.focus();
@@ -2214,7 +2429,7 @@
             state.showSettings = false;
             state.showEmployeeForm = true;
             state.editingEmployee = null;
-            state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorSalutation: '', supervisorPhone: '' };
+            state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorSalutation: '', supervisorPhone: '', maxLeaveRequestDays: 2 };
             state.employeeSearchTerm = '';
             render();
         };
@@ -2289,7 +2504,11 @@
         window.toggleMaintenance = async function() {
             try {
                 const newStatus = !state.settings.websiteActive;
-                await apiCall('updateSettings', { websiteActive: newStatus });
+                const saved = await apiCall('updateSettings', { websiteActive: newStatus });
+                if (!saved || saved.success === false) {
+                    alert((saved && saved.error) ? saved.error : 'GAGAL MENGUBAH STATUS!');
+                    return;
+                }
                 state.settings.websiteActive = newStatus;
                 render();
             } catch (error) {
@@ -2305,7 +2524,8 @@
                 usedLeave: (emp.usedLeave !== undefined && emp.usedLeave !== null) ? emp.usedLeave : 0,
                 supervisorName: emp.supervisorName || '',
                 supervisorSalutation: emp.supervisorSalutation || '',
-                supervisorPhone: emp.supervisorPhone || ''
+                supervisorPhone: emp.supervisorPhone || '',
+                maxLeaveRequestDays: (emp.maxLeaveRequestDays !== undefined && emp.maxLeaveRequestDays !== null) ? emp.maxLeaveRequestDays : 2
             };
             state.employeeSearchTerm = '';
             render();
@@ -2313,7 +2533,7 @@
 
         window.cancelEmployeeEdit = function() {
             state.editingEmployee = null;
-            state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorSalutation: '', supervisorPhone: '' };
+            state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorSalutation: '', supervisorPhone: '', maxLeaveRequestDays: 2 };
             render();
         };
 
@@ -2324,6 +2544,12 @@
             const empUsedLeave = parseInt(document.getElementById('empUsedLeave')?.value);
             const empSupervisorName = document.getElementById('empSupervisorName')?.value?.toUpperCase();
             const empSupervisor = document.getElementById('empSupervisor')?.value;
+
+            const empMaxLeaveDays = parseInt(document.getElementById('empMaxLeaveDays')?.value);
+            if (isNaN(empMaxLeaveDays) || empMaxLeaveDays < 1 || empMaxLeaveDays > 12) {
+                alert('MAKSIMAL LAMA PENGAJUAN CUTI HARUS ANTARA 1-12 HARI!');
+                return;
+            }
 
             if (!empId || !empName) {
                 alert('ID DAN NAMA KARYAWAN WAJIB DIISI!');
@@ -2347,21 +2573,28 @@
                 supervisorName: empSupervisorName,
                 supervisorPhone: empSupervisor,
                 // opsional: bisa diisi dari Google Sheet langsung
-                supervisorSalutation: empSupervisorSalutation ? empSupervisorSalutation.toUpperCase() : ''
+                supervisorSalutation: empSupervisorSalutation ? empSupervisorSalutation.toUpperCase() : '',
+                // baru: maks pengajuan cuti per karyawan
+                maxLeaveRequestDays: empMaxLeaveDays
             };
 
             try {
+                let saved;
                 if (state.editingEmployee) {
-                    await apiCall('updateEmployee', employeeData);
+                    saved = await apiCall('updateEmployee', employeeData);
                 } else {
-                    await apiCall('addEmployee', employeeData);
+                    saved = await apiCall('addEmployee', employeeData);
+                }
+                if (!saved || saved.success === false) {
+                    alert((saved && saved.error) ? saved.error : 'GAGAL MENYIMPAN KARYAWAN!');
+                    return;
                 }
                 
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 await loadEmployees();
                 
                 state.editingEmployee = null;
-                state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorSalutation: '', supervisorPhone: '' };
+                state.employeeFormData = { id: '', name: '', usedLeave: 0, supervisorName: '', supervisorSalutation: '', supervisorPhone: '', maxLeaveRequestDays: 2 };
                 render();
                 alert(wasEditing ? 'KARYAWAN BERHASIL DIUPDATE!' : 'KARYAWAN BERHASIL DITAMBAHKAN!');
             } catch (error) {
@@ -2373,7 +2606,11 @@
             if (!confirm('YAKIN INGIN MENGHAPUS KARYAWAN INI?')) return;
             
             try {
-                await apiCall('deleteEmployee', { id });
+                const del = await apiCall('deleteEmployee', { id });
+                if (!del || del.success === false) {
+                    alert((del && del.error) ? del.error : 'GAGAL MENGHAPUS KARYAWAN!');
+                    return;
+                }
                 await new Promise(resolve => setTimeout(resolve, 2000));
                 await loadEmployees();
                 render();
@@ -2394,6 +2631,8 @@
 
         window.logout = function() {
             state.isAdminLoggedIn = false;
+            state.adminUsername = 'admin';
+            state.userRole = 'admin';
             state.page = 'select';
             stopAutoRefresh();
             render();
