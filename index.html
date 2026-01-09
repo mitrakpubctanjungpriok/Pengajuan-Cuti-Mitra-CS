@@ -74,9 +74,9 @@
             // CONTOH: 'https://nama-domain-anda.com/index.html'
             PUBLIC_BASE_URL: 'https://pengajuan-cuti-mitra-cs.pages.dev/',
             // LOGO UNTUK OVERLAY DI TENGAH QR
-            LOGO_URL: 'https://upload.wikimedia.org/wikipedia/commons/7/73/Logo_kementerian_keuangan_republik_indonesia.png',
+            LOGO_URL: 'https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiBO_R0vvTCx7Nc0bMU5Y2jU0LlnZZO1-lBJRZOICD1nz9nDNA3Bn6xxhjAH33B6mmDJHlID3Bvl9u6ocm6nSvPANPpdKLcxyY8uO2PtZzXug45_dePGsVPIYrHoCVunC2clgEpITij_vvw/s1600/LOGO+Depkeu.JPG',
             // LOGO UNTUK KOP SURAT
-            KEMENKEU_LOGO: 'https://upload.wikimedia.org/wikipedia/commons/7/73/Logo_kementerian_keuangan_republik_indonesia.png'
+            KEMENKEU_LOGO: 'https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEiBO_R0vvTCx7Nc0bMU5Y2jU0LlnZZO1-lBJRZOICD1nz9nDNA3Bn6xxhjAH33B6mmDJHlID3Bvl9u6ocm6nSvPANPpdKLcxyY8uO2PtZzXug45_dePGsVPIYrHoCVunC2clgEpITij_vvw/s1600/LOGO+Depkeu.JPG'
         };
 
         // ==================== STATE ====================
@@ -210,6 +210,101 @@
             const s = new Date(start);
             const e = new Date(end);
             return Math.ceil((e - s) / (1000 * 60 * 60 * 24)) + 1;
+        }
+
+        // ===== HITUNG CUTI TANPA SABTU/MINGGU (HARI KERJA) =====
+        function isWeekendDateObj(d) {
+            const day = d.getDay();
+            return day === 0 || day === 6; // MINGGU(0) / SABTU(6)
+        }
+
+        function parseDateOnly(dateStr) {
+            const s = String(dateStr || '').substring(0, 10);
+            const parts = s.split('-');
+            if (parts.length !== 3) return null;
+            const y = parseInt(parts[0]);
+            const m = parseInt(parts[1]);
+            const d = parseInt(parts[2]);
+            if ([y, m, d].some(n => isNaN(n))) return null;
+            return new Date(y, m - 1, d);
+        }
+
+        function formatDateOnly(d) {
+            const yy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yy}-${mm}-${dd}`;
+        }
+
+        // Jika tanggal jatuh di Sabtu/Minggu, geser ke hari kerja berikutnya
+        function adjustToNextWeekday(dateStr) {
+            const dt = parseDateOnly(dateStr);
+            if (!dt) return '';
+            if (!isWeekendDateObj(dt)) return formatDateOnly(dt);
+            const moved = new Date(dt);
+            while (isWeekendDateObj(moved)) moved.setDate(moved.getDate() + 1);
+            return formatDateOnly(moved);
+        }
+
+        // Hitung tanggal selesai berdasarkan lama cuti (hari kerja), tanpa menghitung Sabtu/Minggu.
+        // Durasi bersifat inklusif (hari pertama = tanggal mulai).
+        function calculateEndDateWorkdays(startDateStr, duration) {
+            if (!startDateStr || !duration) return '';
+            const days = parseInt(duration);
+            if (isNaN(days) || days < 1) return '';
+
+            // Pastikan start adalah hari kerja
+            let start = parseDateOnly(startDateStr);
+            if (!start) return '';
+            if (isWeekendDateObj(start)) {
+                // Geser ke hari kerja berikutnya
+                start = parseDateOnly(adjustToNextWeekday(startDateStr));
+            }
+
+            if (days === 1) return formatDateOnly(start);
+
+            const dt = new Date(start);
+            let added = 0;
+            while (added < (days - 1)) {
+                dt.setDate(dt.getDate() + 1);
+                if (!isWeekendDateObj(dt)) added++;
+            }
+            return formatDateOnly(dt);
+        }
+
+        // Hitung durasi hari kerja dari start-end (inklusif) tanpa Sabtu/Minggu
+        function calculateDurationWorkdays(startDateStr, endDateStr) {
+            if (!startDateStr || !endDateStr) return 0;
+            const start = parseDateOnly(startDateStr);
+            const end = parseDateOnly(endDateStr);
+            if (!start || !end) return 0;
+            if (end < start) return 0;
+
+            let count = 0;
+            const dt = new Date(start);
+            while (dt <= end) {
+                if (!isWeekendDateObj(dt)) count++;
+                dt.setDate(dt.getDate() + 1);
+            }
+            return count;
+        }
+
+        // Tambah hari untuk tanggal format yyyy-mm-dd (AMAN untuk WIB, tanpa geser timezone)
+        function addDaysDateOnly(dateStr, days) {
+            if (!dateStr) return '';
+            const s = String(dateStr).substring(0, 10);
+            const parts = s.split('-');
+            if (parts.length !== 3) return '';
+            const y = parseInt(parts[0]);
+            const m = parseInt(parts[1]);
+            const d = parseInt(parts[2]);
+            if ([y, m, d].some(n => isNaN(n))) return '';
+            const dt = new Date(y, m - 1, d);
+            dt.setDate(dt.getDate() + (parseInt(days) || 0));
+            const yy = dt.getFullYear();
+            const mm = String(dt.getMonth() + 1).padStart(2, '0');
+            const dd = String(dt.getDate()).padStart(2, '0');
+            return `${yy}-${mm}-${dd}`;
         }
 
         function formatLamaCuti(val) {
@@ -811,10 +906,11 @@
                     return;
                 }
 
+                const durKerja = calculateDurationWorkdays(data.tanggalMulai, data.tanggalSelesai);
                 state.submittedData = {
                     ...data,
-                    terpakai: calculateDuration(data.tanggalMulai, data.tanggalSelesai),
-                    sisa: state.selectedEmployee.remainingLeave - (data.jenisCuti === 'CUTI TAHUNAN' ? calculateDuration(data.tanggalMulai, data.tanggalSelesai) : 0)
+                    terpakai: durKerja,
+                    sisa: state.selectedEmployee.remainingLeave - (data.jenisCuti === 'CUTI TAHUNAN' ? durKerja : 0)
                 };
 
                 // SEKALI PAKAI: setelah submit berhasil, batas maksimal kembali ke 2 hari
@@ -944,6 +1040,7 @@
             if (state.showStatusCheck) app.innerHTML += renderStatusCheckModal();
 
             attachEventListeners();
+
         }
 
         function renderHeader(showAdmin = true, wrapperClass = 'mb-6') {
@@ -1059,162 +1156,217 @@
             const emp = state.selectedEmployee;
             const showPersetujuan = state.formData.jabatan === 'ANGGOTA';
             const showFotoUpload = state.formData.jenisCuti === 'CUTI SAKIT';
-            const duration = calculateDuration(state.formData.tanggalMulai, state.formData.tanggalSelesai);
+
+            // Durasi untuk tampilan: hitung hari kerja (tanpa Sabtu/Minggu)
+            const duration = calculateDurationWorkdays(state.formData.tanggalMulai, state.formData.tanggalSelesai);
 
             // MAKSIMAL LAMA PENGAJUAN CUTI (DEFAULT 2 HARI, BISA DIATUR PER KARYAWAN)
             const maxDays = Math.min(12, Math.max(1, parseInt(emp?.maxLeaveRequestDays ?? 2)));
 
             return `
                 <div class="max-w-2xl mx-auto p-4 sm:p-8">
-                    <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
-                        <div class="flex justify-between items-center mb-6 border-b pb-4">
-                            <h2 class="text-xl sm:text-2xl font-bold text-gray-800">PENGAJUAN CUTI</h2>
-                            <button onclick="goToSelect()" class="p-2 hover:bg-gray-100 rounded-lg transition">
-                                <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
-                            </button>
-                        </div>
-
-                        <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6">
-                            <div class="font-semibold text-gray-800">KARYAWAN: ${emp.name}</div>
-                            <div class="text-sm text-gray-600">SISA CUTI TAHUNAN: ${emp.remainingLeave} HARI</div>
-                        </div>
-
-                        <form id="leaveForm" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">JABATAN *</label>
-                                <select id="jabatan" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateFormField('jabatan', this.value)">
-                                    <option value="">-- PILIH JABATAN --</option>
-                                    <option value="PENGAWAS" ${state.formData.jabatan === 'PENGAWAS' ? 'selected' : ''}>PENGAWAS</option>
-                                    <option value="ANGGOTA" ${state.formData.jabatan === 'ANGGOTA' ? 'selected' : ''}>ANGGOTA</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">UNIT KERJA *</label>
-                                <select id="unitKerja" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateFormField('unitKerja', this.value)">
-                                    <option value="">-- PILIH UNIT KERJA --</option>
-                                    <option value="TENAGA KEBERSIHAN" ${state.formData.unitKerja === 'TENAGA KEBERSIHAN' ? 'selected' : ''}>TENAGA KEBERSIHAN</option>
-                                    <option value="PRAMUSAJI" ${state.formData.unitKerja === 'PRAMUSAJI' ? 'selected' : ''}>PRAMUSAJI</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">JENIS CUTI *</label>
-                                <select id="jenisCuti" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateFormField('jenisCuti', this.value)">
-                                    <option value="">-- PILIH JENIS CUTI --</option>
-                                    <option value="CUTI TAHUNAN" ${state.formData.jenisCuti === 'CUTI TAHUNAN' ? 'selected' : ''}>CUTI TAHUNAN</option>
-                                    <option value="CUTI SAKIT" ${state.formData.jenisCuti === 'CUTI SAKIT' ? 'selected' : ''}>CUTI SAKIT</option>
-                                </select>
-                            </div>
-
-                            ${showFotoUpload ? `
-                                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                                    <div class="flex items-center gap-2 text-amber-700">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    <div class="relative overflow-hidden rounded-2xl shadow-xl mb-5">
+                        <div class="absolute inset-0 bg-gradient-to-r from-sky-100 via-blue-100 to-indigo-100"></div>
+                        <div class="absolute -top-20 -right-20 w-72 h-72 bg-white/40 blur-3xl rounded-full"></div>
+                        <div class="absolute -bottom-24 -left-20 w-80 h-80 bg-indigo-200/40 blur-3xl rounded-full"></div>
+                        <div class="relative p-5 sm:p-6">
+                            <div class="bg-white/60 backdrop-blur-md ring-1 ring-white/70 rounded-2xl p-4 sm:p-5">
+                                <div class="flex justify-between items-start gap-3">
+                                    <div class="min-w-0">
+                                        <div class="text-[11px] text-slate-600 font-semibold tracking-wider">FORM</div>
+                                        <h2 class="text-xl sm:text-2xl font-extrabold text-slate-800 leading-tight">PENGAJUAN CUTI</h2>
+                                        <div class="mt-2 flex items-center gap-2 text-xs">
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full bg-indigo-600 text-white font-bold">1</span>
+                                            <span class="font-semibold text-slate-700">ISI DATA</span>
+                                            <span class="text-slate-400">→</span>
+                                            <span class="inline-flex items-center px-2 py-1 rounded-full bg-slate-200 text-slate-700 font-bold">2</span>
+                                            <span class="font-semibold text-slate-500">KIRIM</span>
+                                        </div>
+                                    </div>
+                                    <button onclick="goToSelect()" class="p-2 bg-white/80 hover:bg-white rounded-xl shadow-sm ring-1 ring-white/70 transition" aria-label="TUTUP">
+                                        <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                         </svg>
-                                        <span class="font-semibold">WAJIB MELAMPIRKAN SURAT DOKTER ATAUPUN RAWAT INAP</span>
+                                    </button>
+                                </div>
+
+                                <div class="mt-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                                    <div class="font-extrabold text-indigo-800">KARYAWAN: ${emp.name}</div>
+                                    <div class="text-sm text-indigo-700 font-semibold">SISA CUTI TAHUNAN: ${emp.remainingLeave} HARI</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-xl p-6 sm:p-8">
+                        <form id="leaveForm" class="space-y-5">
+                            <!-- SECTION: DATA CUTI -->
+                            <div class="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+                                <div class="flex items-center justify-between gap-2 mb-3">
+                                    <div class="text-sm font-extrabold text-slate-800">DATA CUTI</div>
+                                    <div class="text-[11px] text-slate-500">WAJIB DIISI (*)</div>
+                                </div>
+
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">JABATAN *</label>
+                                        <select id="jabatan" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateFormField('jabatan', this.value)">
+                                            <option value="">-- PILIH JABATAN --</option>
+                                            <option value="PENGAWAS" ${state.formData.jabatan === 'PENGAWAS' ? 'selected' : ''}>PENGAWAS</option>
+                                            <option value="ANGGOTA" ${state.formData.jabatan === 'ANGGOTA' ? 'selected' : ''}>ANGGOTA</option>
+                                        </select>
                                     </div>
-                                </div>
-                            ` : ''}
 
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">ALASAN CUTI *</label>
-                                <textarea id="alasan" rows="3" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateFormField('alasan', this.value)">${state.formData.alasan}</textarea>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">LAMA PENGAMBILAN CUTI *</label>
-                                <select id="lamaCuti" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateLamaCuti(this.value)">
-                                    <option value="">-- PILIH DURASI --</option>
-                                    ${Array.from({ length: maxDays }, (_, i) => {
-                                        const n = i + 1;
-                                        return `<option value="${n}" ${state.formData.lamaCuti === String(n) ? 'selected' : ''}>${n} HARI</option>`;
-                                    }).join('')}
-                                </select>
-                                <p class="text-xs text-gray-500 mt-1">MAKSIMAL ${maxDays} HARI (DIATUR OLEH ADMIN)</p>
-                                <p class="text-xs text-gray-500">CATATAN: BATAS MAKSIMAL INI SEKALI PAKAI DAN AKAN RESET KE 2 HARI SETELAH PENGAJUAN DIKIRIM</p>
-                            </div>
-
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">TERHITUNG MULAI TANGGAL *</label>
-                                    <input type="date" id="tanggalMulai" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" value="${state.formData.tanggalMulai}" onchange="updateTanggalMulai(this.value)">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">SAMPAI DENGAN TANGGAL *</label>
-                                    <input type="date" id="tanggalSelesai" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-gray-100" value="${state.formData.tanggalSelesai}" readonly>
-                                </div>
-                            </div>
-
-                            ${duration > 0 ? `
-                                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
-                                    <span class="font-bold text-indigo-700">DURASI PENGAJUAN: ${duration} HARI</span>
-                                </div>
-                            ` : ''}
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">ALAMAT SELAMA MENJALANI CUTI *</label>
-                                <textarea id="alamat" rows="3" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateFormField('alamat', this.value)">${state.formData.alamat}</textarea>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">NOMOR TELEPON *</label>
-                                <input type="tel" id="telepon" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" value="${state.formData.telepon}" onchange="updateFormField('telepon', this.value)" placeholder="628XXXXXXXXXX">
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">EMAIL *</label>
-                                <input type="email" id="email" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" value="${state.formData.email}" onchange="updateFormField('email', this.value)" placeholder="EMAIL@EXAMPLE.COM" style="text-transform: lowercase;">
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">SIAPA PETUGAS YANG MENGGANTIKAN ANDA SELAMA ANDA MENJALANI CUTI? *</label>
-                                <textarea id="petugasPengganti" rows="2" class="w-full p-3 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500" onchange="updateFormField('petugasPengganti', this.value)">${state.formData.petugasPengganti}</textarea>
-                            </div>
-
-                            ${showPersetujuan ? `
-                                <div class="border-2 border-gray-200 rounded-lg p-4 hover:bg-gray-50">
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">PERSETUJUAN PENGAWAS *</label>
-                                    <div class="flex gap-6">
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" name="persetujuanPengawas" value="YA SUDAH" ${state.formData.persetujuanPengawas === 'YA SUDAH' ? 'checked' : ''} onchange="updateFormField('persetujuanPengawas', this.value)">
-                                            <span>YA SUDAH</span>
-                                        </label>
-                                        <label class="flex items-center gap-2 cursor-pointer">
-                                            <input type="radio" name="persetujuanPengawas" value="BELUM" ${state.formData.persetujuanPengawas === 'BELUM' ? 'checked' : ''} onchange="updateFormField('persetujuanPengawas', this.value)">
-                                            <span>BELUM</span>
-                                        </label>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">UNIT KERJA *</label>
+                                        <select id="unitKerja" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateFormField('unitKerja', this.value)">
+                                            <option value="">-- PILIH UNIT KERJA --</option>
+                                            <option value="TENAGA KEBERSIHAN" ${state.formData.unitKerja === 'TENAGA KEBERSIHAN' ? 'selected' : ''}>TENAGA KEBERSIHAN</option>
+                                            <option value="PRAMUSAJI" ${state.formData.unitKerja === 'PRAMUSAJI' ? 'selected' : ''}>PRAMUSAJI</option>
+                                        </select>
                                     </div>
-                                </div>
-                            ` : ''}
 
-                            ${showFotoUpload ? `
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">LAMPIRAN SURAT DOKTER/RAWAT INAP *</label>
-                                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-indigo-400 transition">
-                                        <input type="file" id="photoInput" accept="image/*,.pdf,.doc,.docx" capture="environment" class="hidden" onchange="handlePhotoUpload(this)">
-                                        ${state.photoPreview ? `
-                                            <div class="mb-4">
-                                                <img src="${state.photoPreview}" class="max-w-full max-h-48 mx-auto rounded-lg shadow">
-                                            </div>
-                                            <button type="button" onclick="removePhoto()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">HAPUS FILE</button>
-                                        ` : `
-                                            <button type="button" onclick="document.getElementById('photoInput').click()" class="flex flex-col items-center justify-center w-full">
-                                                <svg class="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">JENIS CUTI *</label>
+                                        <select id="jenisCuti" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateFormField('jenisCuti', this.value)">
+                                            <option value="">-- PILIH JENIS CUTI --</option>
+                                            <option value="CUTI TAHUNAN" ${state.formData.jenisCuti === 'CUTI TAHUNAN' ? 'selected' : ''}>CUTI TAHUNAN</option>
+                                            <option value="CUTI SAKIT" ${state.formData.jenisCuti === 'CUTI SAKIT' ? 'selected' : ''}>CUTI SAKIT</option>
+                                        </select>
+                                    </div>
+
+                                    ${showFotoUpload ? `
+                                        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                                            <div class="flex items-center gap-2 text-amber-700">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                                                 </svg>
-                                                <span class="text-gray-500">KLIK UNTUK UPLOAD ATAU AMBIL FOTO</span>
-                                            </button>
-                                        `}
+                                                <span class="font-semibold">WAJIB MELAMPIRKAN SURAT DOKTER ATAUPUN RAWAT INAP</span>
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">ALASAN CUTI *</label>
+                                        <textarea id="alasan" rows="3" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateFormField('alasan', this.value)">${state.formData.alasan}</textarea>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">LAMA PENGAMBILAN CUTI *</label>
+                                        <select id="lamaCuti" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateLamaCuti(this.value)">
+                                            <option value="">-- PILIH DURASI --</option>
+                                            ${Array.from({ length: maxDays }, (_, i) => {
+                                                const n = i + 1;
+                                                return `<option value="${n}" ${state.formData.lamaCuti === String(n) ? 'selected' : ''}>${n} HARI</option>`;
+                                            }).join('')}
+                                        </select>
+                                        <div class="text-xs text-slate-600 font-semibold mt-2">MAKSIMAL ${maxDays} HARI</div>
                                     </div>
                                 </div>
+                            </div>
+
+                            <!-- SECTION: TANGGAL -->
+                            <div class="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+                                <div class="flex items-center justify-between gap-2 mb-3">
+                                    <div class="text-sm font-extrabold text-slate-800">TANGGAL CUTI</div>
+                                </div>
+
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">TERHITUNG MULAI TANGGAL *</label>
+                                        <input type="date" id="tanggalMulai" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" value="${state.formData.tanggalMulai}" onchange="updateTanggalMulai(this.value)">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">SAMPAI DENGAN TANGGAL *</label>
+                                        <input type="date" id="tanggalSelesai" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-100" value="${state.formData.tanggalSelesai}" readonly>
+                                    </div>
+                                </div>
+
+
+                                ${duration > 0 ? `
+                                    <div class="mt-4 bg-indigo-50 border border-indigo-200 rounded-xl p-3">
+                                        <span class="font-bold text-indigo-700">DURASI PENGAJUAN (HARI KERJA): ${duration} HARI</span>
+                                    </div>
+                                ` : ''}
+                            </div>
+
+                            <!-- SECTION: KONTAK & PENGGANTI -->
+                            <div class="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+                                <div class="text-sm font-extrabold text-slate-800 mb-3">KONTAK & PENGGANTI</div>
+
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">ALAMAT SELAMA MENJALANI CUTI *</label>
+                                        <textarea id="alamat" rows="3" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateFormField('alamat', this.value)">${state.formData.alamat}</textarea>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">NOMOR TELEPON *</label>
+                                            <input type="tel" id="telepon" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" value="${state.formData.telepon}" onchange="updateFormField('telepon', this.value)" placeholder="628XXXXXXXXXX">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">EMAIL *</label>
+                                            <input type="email" id="email" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" value="${state.formData.email}" onchange="updateFormField('email', this.value)" placeholder="EMAIL@EXAMPLE.COM" style="text-transform: lowercase;">
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">SIAPA PETUGAS YANG MENGGANTIKAN ANDA SELAMA ANDA MENJALANI CUTI? *</label>
+                                        <textarea id="petugasPengganti" rows="2" class="w-full p-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-gray-50/40" onchange="updateFormField('petugasPengganti', this.value)">${state.formData.petugasPengganti}</textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SECTION: PERSETUJUAN / LAMPIRAN -->
+                            ${(showPersetujuan || showFotoUpload) ? `
+                            <div class="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+                                <div class="text-sm font-extrabold text-slate-800 mb-3">PERSETUJUAN / LAMPIRAN</div>
+
+                                <div class="space-y-4">
+                                    ${showPersetujuan ? `
+                                        <div class="border-2 border-gray-200 rounded-xl p-4 hover:bg-gray-50">
+                                            <label class="block text-sm font-medium text-gray-700 mb-2">PERSETUJUAN PENGAWAS *</label>
+                                            <div class="flex gap-6">
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input type="radio" name="persetujuanPengawas" value="YA SUDAH" ${state.formData.persetujuanPengawas === 'YA SUDAH' ? 'checked' : ''} onchange="updateFormField('persetujuanPengawas', this.value)">
+                                                    <span>YA SUDAH</span>
+                                                </label>
+                                                <label class="flex items-center gap-2 cursor-pointer">
+                                                    <input type="radio" name="persetujuanPengawas" value="BELUM" ${state.formData.persetujuanPengawas === 'BELUM' ? 'checked' : ''} onchange="updateFormField('persetujuanPengawas', this.value)">
+                                                    <span>BELUM</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    ` : ''}
+
+                                    ${showFotoUpload ? `
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">LAMPIRAN SURAT DOKTER/RAWAT INAP *</label>
+                                            <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-indigo-400 transition bg-gray-50/30">
+                                                <input type="file" id="photoInput" accept="image/*,.pdf,.doc,.docx" capture="environment" class="hidden" onchange="handlePhotoUpload(this)">
+                                                ${state.photoPreview ? `
+                                                    <div class="mb-4">
+                                                        <img src="${state.photoPreview}" class="max-w-full max-h-48 mx-auto rounded-lg shadow">
+                                                    </div>
+                                                    <button type="button" onclick="removePhoto()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">HAPUS FILE</button>
+                                                ` : `
+                                                    <button type="button" onclick="document.getElementById('photoInput').click()" class="flex flex-col items-center justify-center w-full">
+                                                        <svg class="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                        </svg>
+                                                        <span class="text-gray-500">KLIK UNTUK UPLOAD ATAU AMBIL FOTO</span>
+                                                    </button>
+                                                `}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
                             ` : ''}
 
-                            <button type="submit" class="w-full py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow hover:bg-indigo-700 transition ${state.loading ? 'opacity-50 cursor-not-allowed' : ''}" ${state.loading ? 'disabled' : ''}>
+                            <button type="submit" class="w-full py-3 bg-indigo-600 text-white font-extrabold rounded-xl shadow hover:bg-indigo-700 transition ${state.loading ? 'opacity-50 cursor-not-allowed' : ''}" ${state.loading ? 'disabled' : ''}>
                                 ${state.loading ? 'MENGAJUKAN...' : 'KIRIM'}
                             </button>
                         </form>
@@ -1972,6 +2124,12 @@
             // Normalisasi agar tidak dobel "?"/"/" dan aman ditambah query
             baseUrl = baseUrl.replace(/\/+$/, '/');
 
+            // MODE UI:
+            // - HASIL SCAN QR: hanya softcopy (tanpa tombol PRINT/KEMBALI dan tanpa link)
+            // - ADMIN klik dari panel: pakai ui=1 untuk menampilkan tombol
+            const urlParams = new URLSearchParams(window.location.search);
+            const showUi = urlParams.get('ui') === '1';
+
             // Pakai shortlink agar QR offline selalu muat dan tidak error
             const verifyUrl = `${baseUrl}?p=${data.rowIndex}`;
             const qrElementId = `qrBox-${data.rowIndex}`;
@@ -2015,13 +2173,14 @@
                                 <td style="padding: 2px 8px 2px 0; width: 10px;">:</td>
                                 <td style="padding: 2px 0; font-weight: 700;">${data.nama}</td>
                             </tr>
-                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">ID Karyawan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.id}</td></tr>
+                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">ID Absensi</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.id}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Jabatan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.jabatan}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Unit Kerja</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.unitKerja}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Jenis Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.jenisCuti}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Alasan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.alasan}</td></tr>
-                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Lama Pengambilan Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatLamaCuti(data.lamaCuti)}</td></tr>
+                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Lama Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatLamaCuti(data.lamaCuti)}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Tanggal Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatDateShort(data.tanggalMulai)} s.d. ${formatDateShort(data.tanggalSelesai)}</td></tr>
+                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Masuk Kerja</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatDateShort(addDaysDateOnly(data.tanggalSelesai, 1))}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Alamat Selama Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.alamat}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">No. Telepon</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.telepon}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Petugas Pengganti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.petugasPengganti}</td></tr>
@@ -2042,9 +2201,9 @@
                                 <!-- Overlay logo: 14px + border lingkaran sempurna (rapi & tetap mudah discan) -->
                                 <div data-qr-overlay style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
                                     <!-- white pad untuk menjaga kontras QR di area tengah -->
-                                    <div style="width:22px; height:22px; background:#fff; border-radius:999px; display:flex; align-items:center; justify-content:center;">
-                                        <div style="width:18px; height:18px; background:#fff; border:1px solid #111; border-radius:999px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
-                                            <img src="${CONFIG.LOGO_URL}" alt="LOGO" style="width:14px; height:14px; display:block;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                                    <div style="width:38px; height:38px; background:#fff; border-radius:999px; display:flex; align-items:center; justify-content:center;">
+                                        <div style="width:34px; height:34px; background:#fff; border:1px solid #111; border-radius:999px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                                            <img src="${CONFIG.LOGO_URL}" alt="LOGO" style="width:30px; height:30px; display:block;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                                         </div>
                                     </div>
                                 </div>
@@ -2058,6 +2217,7 @@
                 </div>
                 </div>
 
+                ${showUi ? `
                 <div class="no-print fixed bottom-4 left-4 text-xs text-slate-600 bg-white/80 backdrop-blur px-3 py-2 rounded-lg shadow" style="text-transform:none;">
                     <div style="font-weight:700;">LINK QR:</div>
                     <div style="max-width: 70vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" data-verify-url>${verifyUrl}</div>
@@ -2071,6 +2231,7 @@
                         KEMBALI
                     </button>
                 </div>
+                ` : ''}
             `;
 
             // Render QR setelah layout siap (agar ukuran & posisi rapi)
@@ -2079,13 +2240,17 @@
                     renderQrToElement(qrElementId, verifyUrl);
 
                     // Klik QR (hanya untuk tes di layar; tidak mempengaruhi hasil print)
+                    // Khusus admin (ui=1) agar softcopy hasil scan tetap bersih.
                     const qrHost = document.getElementById(qrElementId);
-                    if (qrHost) {
+                    if (qrHost && showUi) {
+                        qrHost.style.cursor = 'pointer';
                         qrHost.onclick = () => {
                             // Buka QR resolusi besar untuk tes (tanpa mempengaruhi hasil print)
                             const testUrl = `https://api.qrserver.com/v1/create-qr-code/?size=900x900&ecc=H&margin=4&data=${encodeURIComponent(String(verifyUrl))}`;
                             window.open(testUrl, '_blank');
                         };
+                    } else if (qrHost) {
+                        qrHost.style.cursor = 'default';
                     }
 
                     // Softcopy HP: fit to screen
@@ -2280,15 +2445,16 @@
                 return false;
             }
 
-            const duration = calculateDuration(state.formData.tanggalMulai, state.formData.tanggalSelesai);
+            const duration = calculateDurationWorkdays(state.formData.tanggalMulai, state.formData.tanggalSelesai);
 
-            // Validasi maksimal lama pengajuan per karyawan
+            // Validasi maksimal lama pengajuan per karyawan (hari kerja)
             const maxDays = Math.min(12, Math.max(1, parseInt(state.selectedEmployee?.maxLeaveRequestDays ?? 2)));
             if (duration > maxDays) {
                 alert(`MAKSIMAL LAMA PENGAJUAN UNTUK ANDA ADALAH ${maxDays} HARI!`);
                 return false;
             }
 
+            // Validasi sisa cuti tahunan berdasarkan hari kerja
             if (state.formData.jenisCuti === 'CUTI TAHUNAN' && duration > state.selectedEmployee.remainingLeave) {
                 alert('SISA CUTI TIDAK MENCUKUPI!');
                 return false;
@@ -2448,16 +2614,27 @@
 
         window.updateLamaCuti = function(value) {
             state.formData.lamaCuti = value;
+
             if (state.formData.tanggalMulai) {
-                state.formData.tanggalSelesai = calculateEndDate(state.formData.tanggalMulai, value);
+                // Jika tanggal mulai jatuh Sabtu/Minggu, geser ke hari kerja terdekat
+                const adjStart = adjustToNextWeekday(state.formData.tanggalMulai);
+                if (adjStart && adjStart !== state.formData.tanggalMulai) {
+                    state.formData.tanggalMulai = adjStart;
+                }
+
+                // Hitung tanggal selesai berdasarkan hari kerja (tanpa Sabtu/Minggu)
+                state.formData.tanggalSelesai = calculateEndDateWorkdays(state.formData.tanggalMulai, value);
             }
             render();
         };
 
         window.updateTanggalMulai = function(value) {
-            state.formData.tanggalMulai = value;
+            // Jika user memilih Sabtu/Minggu, otomatis geser ke hari kerja berikutnya
+            const adj = adjustToNextWeekday(value);
+            state.formData.tanggalMulai = adj || value;
+
             if (state.formData.lamaCuti) {
-                state.formData.tanggalSelesai = calculateEndDate(value, state.formData.lamaCuti);
+                state.formData.tanggalSelesai = calculateEndDateWorkdays(state.formData.tanggalMulai, state.formData.lamaCuti);
             }
             render();
         };
@@ -2767,7 +2944,8 @@
             baseUrl = baseUrl.replace(/\/+$/, '/');
 
             // Konsisten dengan QR: pakai shortlink
-            window.open(`${baseUrl}?p=${rowIndex}`, '_blank');
+            // ui=1 agar tombol PRINT/KEMBALI muncul (khusus admin)
+            window.open(`${baseUrl}?p=${rowIndex}&ui=1`, '_blank');
         };
 
         window.handleApproval = handleApproval;
