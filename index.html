@@ -283,63 +283,68 @@
             el.style.alignItems = 'center';
             el.style.justifyContent = 'center';
 
-            // target size mengikuti container (fallback 95)
-            const targetSize = Math.max(60, Math.min(140, (el.clientWidth || 95)));
-            const quiet = 4; // quiet zone
+            // Ukuran mengikuti container (fallback 105). 105px lebih mudah discan saat diprint.
+            const targetSize = Math.max(80, Math.min(160, (el.clientWidth || 105)));
 
-            try {
-                const qr = QRCodeMinimal.encode(text);
-                const cells = qr.modules.length;
+            // PRIORITAS: pakai gambar QR resolusi tinggi + error correction H + margin (quiet zone) cukup
+            // Ini jauh lebih mudah terdeteksi kamera saat discan dari kertas.
+            const img = document.createElement('img');
+            img.alt = 'QR';
+            img.style.width = targetSize + 'px';
+            img.style.height = targetSize + 'px';
+            img.style.display = 'block';
+            img.style.imageRendering = 'pixelated';
+            img.loading = 'eager';
+            img.decoding = 'async';
+            img.referrerPolicy = 'no-referrer';
+            // Gunakan resolusi kelipatan dari ukuran cetak agar tidak blur (mis. 420px -> dicetak 105px = skala 4:1)
+            // chld=H|4 => error correction tinggi + margin (quiet zone) lebih tebal, lebih mudah discan dari kertas.
+            img.src = `https://chart.googleapis.com/chart?cht=qr&chs=420x420&chld=H|4&chl=${encodeURIComponent(String(text))}`;
 
-                // Scale agar pas
-                const usable = targetSize - (quiet * 2);
-                const scale = Math.max(1, Math.floor(usable / cells));
-                const drawnSize = scale * cells;
+            // Fallback: jika akses Google Chart diblok, pakai QR offline (lebih baik daripada kosong)
+            img.onerror = () => {
+                try {
+                    const quiet = 8; // lebih besar agar lebih mudah discan
+                    const qr = QRCodeMinimal.encode(text);
+                    const cells = qr.modules.length;
 
-                // Centering: hitung padding tambahan agar benar-benar lurus di tengah
-                const extra = targetSize - drawnSize;
-                const pad = Math.floor(extra / 2);
+                    const usable = targetSize - (quiet * 2);
+                    const scale = Math.max(1, Math.floor(usable / cells));
+                    const drawnSize = scale * cells;
+                    const extra = targetSize - drawnSize;
+                    const pad = Math.floor(extra / 2);
 
-                const canvas = document.createElement('canvas');
-                canvas.width = targetSize;
-                canvas.height = targetSize;
-                canvas.style.width = targetSize + 'px';
-                canvas.style.height = targetSize + 'px';
+                    const canvas = document.createElement('canvas');
+                    canvas.width = targetSize;
+                    canvas.height = targetSize;
+                    canvas.style.width = targetSize + 'px';
+                    canvas.style.height = targetSize + 'px';
 
-                const ctx = canvas.getContext('2d');
-                ctx.imageSmoothingEnabled = false;
+                    const ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = false;
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(0, 0, targetSize, targetSize);
 
-                // background putih
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(0, 0, targetSize, targetSize);
-
-                // Draw QR centered
-                const offset = pad;
-                ctx.fillStyle = '#000';
-                for (let r = 0; r < cells; r++) {
-                    for (let c = 0; c < cells; c++) {
-                        if (qr.modules[r][c]) {
-                            ctx.fillRect(offset + c * scale, offset + r * scale, scale, scale);
+                    const offset = pad;
+                    ctx.fillStyle = '#000';
+                    for (let r = 0; r < cells; r++) {
+                        for (let c = 0; c < cells; c++) {
+                            if (qr.modules[r][c]) {
+                                ctx.fillRect(offset + c * scale, offset + r * scale, scale, scale);
+                            }
                         }
                     }
-                }
 
-                el.innerHTML = '';
-                el.appendChild(canvas);
-            } catch (e) {
-                console.error('GAGAL GENERATE QR (OFFLINE):', e);
-                // Fallback ke Google Chart QR image (lebih stabil untuk URL panjang)
-                const fallback = document.createElement('img');
-                fallback.alt = 'QR';
-                fallback.style.width = targetSize + 'px';
-                fallback.style.height = targetSize + 'px';
-                fallback.loading = 'lazy';
-                fallback.decoding = 'async';
-                fallback.referrerPolicy = 'no-referrer';
-                fallback.src = `https://chart.googleapis.com/chart?cht=qr&chs=280x280&chld=H|0&chl=${encodeURIComponent(String(text))}`;
-                el.innerHTML = '';
-                el.appendChild(fallback);
-            }
+                    el.innerHTML = '';
+                    el.appendChild(canvas);
+                } catch (e) {
+                    console.error('GAGAL GENERATE QR:', e);
+                    el.innerHTML = '';
+                }
+            };
+
+            el.innerHTML = '';
+            el.appendChild(img);
         }
 
         // QR encoder minimal (MODE BYTE, VERSION 3, EC LEVEL L) untuk teks URL pendek.
@@ -1925,12 +1930,12 @@
                                 <td style="padding: 2px 8px 2px 0; width: 10px;">:</td>
                                 <td style="padding: 2px 0; font-weight: 700;">${data.nama}</td>
                             </tr>
-                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">ID Absensi</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.id}</td></tr>
+                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">ID Karyawan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.id}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Jabatan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.jabatan}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Unit Kerja</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.unitKerja}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Jenis Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.jenisCuti}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Alasan</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.alasan}</td></tr>
-                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Lama Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatLamaCuti(data.lamaCuti)}</td></tr>
+                            <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Lama Pengambilan Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatLamaCuti(data.lamaCuti)}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Tanggal Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${formatDateShort(data.tanggalMulai)} s.d. ${formatDateShort(data.tanggalSelesai)}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">Alamat Selama Cuti</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.alamat}</td></tr>
                             <tr><td style="padding: 2px 10px 2px 0; width: 150px;">No. Telepon</td><td style="padding: 2px 8px 2px 0; width: 10px;">:</td><td style="padding: 2px 0;">${data.telepon}</td></tr>
@@ -1946,12 +1951,13 @@
                             <div style="margin: 0;">MENGETAHUI</div>
                             <div style="font-weight: 700; margin: 0;">KOORDINATOR TENAGA KEBERSIHAN</div>
 
-                            <!-- QR (CANVAS) + LOGO KEMENKEU DI TENGAH (JARAK ATAS/BAWAH TETAP) -->
-                            <div style="width: 95px; height: 95px; position: relative; margin: 6px auto 6px;">
-                                <div id="${qrElementId}" style="width:95px; height:95px; display:flex; align-items:center; justify-content:center;"></div>
+                            <!-- QR VERIFIKASI (GAMBAR) + LOGO KEMENKEU DI TENGAH (JARAK ATAS/BAWAH TETAP) -->
+                            <div style="width: 105px; height: 105px; position: relative; margin: 6px auto 6px;">
+                                <div id="${qrElementId}" style="width:105px; height:105px; display:flex; align-items:center; justify-content:center;"></div>
+                                <!-- Overlay logo diperkecil agar QR tetap mudah discan -->
                                 <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
-                                    <div style="width:18px; height:18px; background:#fff; border-radius:5px; display:flex; align-items:center; justify-content:center; box-shadow: 0 0 0 2px #fff;">
-                                        <img src="${CONFIG.LOGO_URL}" alt="LOGO" style="width:14px; height:14px;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+                                    <div style="width:16px; height:16px; background:#fff; border-radius:4px; display:flex; align-items:center; justify-content:center; box-shadow: 0 0 0 3px #fff;">
+                                        <img src="${CONFIG.LOGO_URL}" alt="LOGO" style="width:12px; height:12px; display:block;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                                     </div>
                                 </div>
                             </div>
