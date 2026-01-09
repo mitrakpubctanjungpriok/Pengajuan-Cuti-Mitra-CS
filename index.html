@@ -21,6 +21,28 @@
         @media (prefers-reduced-motion: reduce) {
             .spinner { animation: none; }
         }
+
+        /* MODE SOFTCOPY DI HP: FIT KE LAYAR (TIDAK TERASA MODE DESKTOP) */
+        @media screen {
+            body.print-preview {
+                background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+            }
+            body.print-preview #app {
+                padding: 14px 0 110px;
+            }
+            body.print-preview #printViewport {
+                display: flex;
+                justify-content: center;
+                padding: 12px;
+                overflow-x: hidden;
+            }
+            body.print-preview #printArea {
+                background: #fff;
+                border-radius: 14px;
+                box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+            }
+        }
+
         @media print {
             @page { size: A4; margin: 16mm 14mm; }
             body * { visibility: hidden; }
@@ -33,6 +55,8 @@
                 width: auto;
                 margin: 0;
                 padding: 0;
+                transform: none !important;
+                zoom: 1 !important;
             }
             .no-print { display: none !important; }
         }
@@ -299,6 +323,7 @@
             img.loading = 'eager';
             img.decoding = 'async';
             img.referrerPolicy = 'no-referrer';
+            img.crossOrigin = 'anonymous';
             // Gunakan resolusi kelipatan dari ukuran cetak agar tidak blur saat dicetak.
             // Prinsip: pakai faktor skala integer (misal 6x) sehingga QR tidak "blur" ketika diprint.
             // chld=H|4 => error correction tinggi + quiet zone standar (kotak QR jadi lebih besar, lebih mudah discan)
@@ -306,40 +331,53 @@
             const hi = Math.max(320, Math.min(1200, targetSize * scaleFactor));
             img.style.imageRendering = 'pixelated';
             img.style.setProperty('image-rendering', 'crisp-edges');
-            // Provider QR image (lebih stabil dibanding Google Chart yang kadang 404/terblok)
-            // ecc=H => error correction tinggi, qzone=4 => quiet zone cukup
-            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${hi}x${hi}&ecc=H&qzone=4&data=${encodeURIComponent(String(text))}`;
+            // Provider utama: QRServer (stabil) + error correction tinggi (H) + quiet zone (margin)
+            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${hi}x${hi}&ecc=H&margin=4&data=${encodeURIComponent(String(text))}`;
 
-            // Fallback: jika provider QR diblok, pakai QR offline (canvas)
+            // Fallback 1: QuickChart (jika QRServer diblok)
+            let _triedBackupProvider = false;
+
+            // Fallback: jika provider diblok total, pakai QR offline.
+            // Catatan: QR offline kita hanya EC level L, jadi jika terpaksa pakai offline maka overlay logo akan disembunyikan
+            // agar QR tetap bisa terbaca.
             img.onerror = () => {
+                if (!_triedBackupProvider) {
+                    _triedBackupProvider = true;
+                    img.src = `https://quickchart.io/qr?text=${encodeURIComponent(String(text))}&size=${hi}&ecLevel=H&margin=4`;
+                    return;
+                }
+
                 try {
+                    // Jika masuk mode offline, sembunyikan overlay logo (supaya QR bisa discan)
+                    try {
+                        const overlay = el.parentElement && el.parentElement.querySelector('[data-qr-overlay]');
+                        if (overlay) overlay.style.display = 'none';
+                    } catch (e) {
+                        // ignore
+                    }
+
+                    const quiet = 10; // lebih besar agar lebih mudah discan
                     const qr = QRCodeMinimal.encode(text);
                     const cells = qr.modules.length;
 
-                    // quiet-zone (dalam "module") agar kamera mudah mendeteksi
-                    const quietModules = 4;
-                    const modules = cells + (quietModules * 2);
-
-                    // Buat canvas besar agar tajam ketika diprint/screenshot, lalu tampilkan sesuai ukuran container
-                    const internalTarget = 900; // resolusi internal
-                    const scale = Math.max(1, Math.floor(internalTarget / modules));
-                    const size = modules * scale;
+                    const usable = targetSize - (quiet * 2);
+                    const scale = Math.max(1, Math.floor(usable / cells));
+                    const drawnSize = scale * cells;
+                    const extra = targetSize - drawnSize;
+                    const pad = Math.floor(extra / 2);
 
                     const canvas = document.createElement('canvas');
-                    canvas.width = size;
-                    canvas.height = size;
+                    canvas.width = targetSize;
+                    canvas.height = targetSize;
                     canvas.style.width = targetSize + 'px';
                     canvas.style.height = targetSize + 'px';
-                    canvas.style.display = 'block';
-                    canvas.style.imageRendering = 'pixelated';
-                    canvas.style.setProperty('image-rendering', 'crisp-edges');
 
                     const ctx = canvas.getContext('2d');
                     ctx.imageSmoothingEnabled = false;
                     ctx.fillStyle = '#fff';
-                    ctx.fillRect(0, 0, size, size);
+                    ctx.fillRect(0, 0, targetSize, targetSize);
 
-                    const offset = quietModules * scale;
+                    const offset = pad;
                     ctx.fillStyle = '#000';
                     for (let r = 0; r < cells; r++) {
                         for (let c = 0; c < cells; c++) {
@@ -854,6 +892,9 @@
         // ==================== RENDER FUNCTIONS ====================
         function render() {
             const app = document.getElementById('app');
+
+            // Pastikan mode preview print tidak terbawa ke halaman lain
+            document.body.classList.remove('print-preview');
             
             if (!state.settings.websiteActive && !state.isAdminLoggedIn) {
                 app.innerHTML = renderMaintenancePage();
@@ -1883,6 +1924,35 @@
             }
         }
 
+        function applyPrintPreviewScale() {
+            const viewport = document.getElementById('printViewport');
+            const area = document.getElementById('printArea');
+            if (!viewport || !area) return;
+
+            // Aktifkan mode softcopy
+            document.body.classList.add('print-preview');
+
+            // Ukur ukuran asli (tanpa terpengaruh transform)
+            const baseWidth = area.offsetWidth || 794;
+            const baseHeight = area.offsetHeight || 1123;
+
+            const padding = 24; // ruang kiri-kanan
+            const vw = Math.max(320, window.innerWidth || 360);
+            const scale = Math.min(1, (vw - padding) / baseWidth);
+
+            area.style.transformOrigin = 'top center';
+            area.style.transform = `scale(${scale})`;
+
+            // Viewport wrapper
+            viewport.style.display = 'flex';
+            viewport.style.justifyContent = 'center';
+            viewport.style.padding = '12px';
+            viewport.style.overflowX = 'hidden';
+
+            // Tinggi wrapper menyesuaikan hasil scale (agar tidak terpotong)
+            viewport.style.minHeight = Math.ceil((baseHeight * scale) + 24) + 'px';
+        }
+
         function displayPrintDocument(data) {
             const app = document.getElementById('app');
 
@@ -1907,7 +1977,8 @@
             const qrElementId = `qrBox-${data.rowIndex}`;
 
             app.innerHTML = `
-                <div id="printArea" class="mx-auto bg-white" style="max-width: 210mm; font-family: 'Times New Roman', serif; text-transform: none;">
+                <div id="printViewport">
+                <div id="printArea" class="mx-auto bg-white" style="width: 210mm; max-width: 210mm; font-family: 'Times New Roman', serif; text-transform: none;">
                     <!-- KOP SURAT (RESMI: LOGO KIRI, TEKS RATA TENGAH) -->
                     <div style="border-bottom: 3px solid #000; padding-bottom: 0; margin-bottom: 0;">
                         <div style="display:grid; grid-template-columns: 86px 1fr 86px; align-items:center; column-gap: 10px;">
@@ -1967,12 +2038,12 @@
 
                             <!-- QR VERIFIKASI (GAMBAR) + LOGO KEMENKEU DI TENGAH (JARAK ATAS/BAWAH TETAP) -->
                             <div style="width: 34mm; height: 34mm; position: relative; margin: 6px auto 6px;">
-                                <div id="${qrElementId}" style="width:34mm; height:34mm; display:flex; align-items:center; justify-content:center; cursor:pointer; background:#fff;"></div>
+                                <div id="${qrElementId}" style="width:34mm; height:34mm; display:flex; align-items:center; justify-content:center; cursor:pointer;"></div>
                                 <!-- Overlay logo: 14px + border lingkaran sempurna (rapi & tetap mudah discan) -->
-                                <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
+                                <div data-qr-overlay style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
                                     <!-- white pad untuk menjaga kontras QR di area tengah -->
-                                    <div style="width:26px; height:26px; background:#fff; border-radius:999px; display:flex; align-items:center; justify-content:center;">
-                                        <div style="width:20px; height:20px; background:#fff; border:1px solid #111; border-radius:999px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                                    <div style="width:22px; height:22px; background:#fff; border-radius:999px; display:flex; align-items:center; justify-content:center;">
+                                        <div style="width:18px; height:18px; background:#fff; border:1px solid #111; border-radius:999px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
                                             <img src="${CONFIG.LOGO_URL}" alt="LOGO" style="width:14px; height:14px; display:block;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                                         </div>
                                     </div>
@@ -1984,6 +2055,7 @@
                             <div style="font-size: 11px; margin: 0;">DISETUJUI PADA TANGGAL: ${formatDateTimeShort(data.tanggalDiproses || new Date().toISOString())}</div>
                         </div>
                     </div>
+                </div>
                 </div>
 
                 <div class="no-print fixed bottom-4 left-4 text-xs text-slate-600 bg-white/80 backdrop-blur px-3 py-2 rounded-lg shadow" style="text-transform:none;">
@@ -2010,11 +2082,18 @@
                     const qrHost = document.getElementById(qrElementId);
                     if (qrHost) {
                         qrHost.onclick = () => {
-                            // Buka QR resolusi besar untuk tes scan (tidak mempengaruhi hasil print)
-                            const testUrl = `https://api.qrserver.com/v1/create-qr-code/?size=1200x1200&ecc=H&qzone=4&data=${encodeURIComponent(String(verifyUrl))}`;
+                            // Buka QR resolusi besar untuk tes (tanpa mempengaruhi hasil print)
+                            const testUrl = `https://api.qrserver.com/v1/create-qr-code/?size=900x900&ecc=H&margin=4&data=${encodeURIComponent(String(verifyUrl))}`;
                             window.open(testUrl, '_blank');
                         };
                     }
+
+                    // Softcopy HP: fit to screen
+                    applyPrintPreviewScale();
+
+                    // Update scale saat rotate/resize
+                    window.addEventListener('resize', applyPrintPreviewScale, { passive: true });
+                    window.addEventListener('orientationchange', applyPrintPreviewScale, { passive: true });
                 });
             });
         }
