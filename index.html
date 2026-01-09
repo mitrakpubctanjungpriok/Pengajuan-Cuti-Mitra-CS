@@ -306,33 +306,40 @@
             const hi = Math.max(320, Math.min(1200, targetSize * scaleFactor));
             img.style.imageRendering = 'pixelated';
             img.style.setProperty('image-rendering', 'crisp-edges');
-            img.src = `https://chart.googleapis.com/chart?cht=qr&chs=${hi}x${hi}&chld=H|4&chl=${encodeURIComponent(String(text))}`;
+            // Provider QR image (lebih stabil dibanding Google Chart yang kadang 404/terblok)
+            // ecc=H => error correction tinggi, qzone=4 => quiet zone cukup
+            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=${hi}x${hi}&ecc=H&qzone=4&data=${encodeURIComponent(String(text))}`;
 
-            // Fallback: jika akses Google Chart diblok, pakai QR offline (lebih baik daripada kosong)
+            // Fallback: jika provider QR diblok, pakai QR offline (canvas)
             img.onerror = () => {
                 try {
-                    const quiet = 8; // lebih besar agar lebih mudah discan
                     const qr = QRCodeMinimal.encode(text);
                     const cells = qr.modules.length;
 
-                    const usable = targetSize - (quiet * 2);
-                    const scale = Math.max(1, Math.floor(usable / cells));
-                    const drawnSize = scale * cells;
-                    const extra = targetSize - drawnSize;
-                    const pad = Math.floor(extra / 2);
+                    // quiet-zone (dalam "module") agar kamera mudah mendeteksi
+                    const quietModules = 4;
+                    const modules = cells + (quietModules * 2);
+
+                    // Buat canvas besar agar tajam ketika diprint/screenshot, lalu tampilkan sesuai ukuran container
+                    const internalTarget = 900; // resolusi internal
+                    const scale = Math.max(1, Math.floor(internalTarget / modules));
+                    const size = modules * scale;
 
                     const canvas = document.createElement('canvas');
-                    canvas.width = targetSize;
-                    canvas.height = targetSize;
+                    canvas.width = size;
+                    canvas.height = size;
                     canvas.style.width = targetSize + 'px';
                     canvas.style.height = targetSize + 'px';
+                    canvas.style.display = 'block';
+                    canvas.style.imageRendering = 'pixelated';
+                    canvas.style.setProperty('image-rendering', 'crisp-edges');
 
                     const ctx = canvas.getContext('2d');
                     ctx.imageSmoothingEnabled = false;
                     ctx.fillStyle = '#fff';
-                    ctx.fillRect(0, 0, targetSize, targetSize);
+                    ctx.fillRect(0, 0, size, size);
 
-                    const offset = pad;
+                    const offset = quietModules * scale;
                     ctx.fillStyle = '#000';
                     for (let r = 0; r < cells; r++) {
                         for (let c = 0; c < cells; c++) {
@@ -1960,12 +1967,12 @@
 
                             <!-- QR VERIFIKASI (GAMBAR) + LOGO KEMENKEU DI TENGAH (JARAK ATAS/BAWAH TETAP) -->
                             <div style="width: 34mm; height: 34mm; position: relative; margin: 6px auto 6px;">
-                                <div id="${qrElementId}" style="width:34mm; height:34mm; display:flex; align-items:center; justify-content:center; cursor:pointer;"></div>
+                                <div id="${qrElementId}" style="width:34mm; height:34mm; display:flex; align-items:center; justify-content:center; cursor:pointer; background:#fff;"></div>
                                 <!-- Overlay logo: 14px + border lingkaran sempurna (rapi & tetap mudah discan) -->
                                 <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
                                     <!-- white pad untuk menjaga kontras QR di area tengah -->
-                                    <div style="width:22px; height:22px; background:#fff; border-radius:999px; display:flex; align-items:center; justify-content:center;">
-                                        <div style="width:18px; height:18px; background:#fff; border:1px solid #111; border-radius:999px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                                    <div style="width:26px; height:26px; background:#fff; border-radius:999px; display:flex; align-items:center; justify-content:center;">
+                                        <div style="width:20px; height:20px; background:#fff; border:1px solid #111; border-radius:999px; display:flex; align-items:center; justify-content:center; overflow:hidden;">
                                             <img src="${CONFIG.LOGO_URL}" alt="LOGO" style="width:14px; height:14px; display:block;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                                         </div>
                                     </div>
@@ -2003,7 +2010,8 @@
                     const qrHost = document.getElementById(qrElementId);
                     if (qrHost) {
                         qrHost.onclick = () => {
-                            const testUrl = `https://chart.googleapis.com/chart?cht=qr&chs=900x900&chld=H|4&chl=${encodeURIComponent(String(verifyUrl))}`;
+                            // Buka QR resolusi besar untuk tes scan (tidak mempengaruhi hasil print)
+                            const testUrl = `https://api.qrserver.com/v1/create-qr-code/?size=1200x1200&ecc=H&qzone=4&data=${encodeURIComponent(String(verifyUrl))}`;
                             window.open(testUrl, '_blank');
                         };
                     }
