@@ -45,9 +45,29 @@
 
         @media print {
             @page { size: A4; margin: 16mm 14mm; }
+
+            html, body { height: auto !important; }
+            body { background: #fff !important; }
+
+            /* Sembunyikan semua, tapi hindari elemen hidden yang tetap memakan tinggi */
             body * { visibility: hidden; }
+
+            /* Pastikan wrapper preview tidak membuat halaman tambahan */
+            #app { padding: 0 !important; margin: 0 !important; }
+            #printViewport {
+                visibility: visible !important;
+                display: block !important;
+                min-height: 0 !important;
+                height: auto !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                overflow: visible !important;
+            }
+            #printViewport * { visibility: visible !important; }
+
             #printArea, #printArea * { visibility: visible; }
-            /* Biarkan browser mengatur layout A4, jangan pakai min-height layar */
+
+            /* Biarkan browser mengatur layout A4 */
             #printArea {
                 position: static;
                 left: auto;
@@ -57,7 +77,12 @@
                 padding: 0;
                 transform: none !important;
                 zoom: 1 !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                page-break-after: avoid;
+                break-after: avoid;
             }
+
             .no-print { display: none !important; }
         }
     </style>
@@ -2139,14 +2164,14 @@
                 <div id="printArea" class="mx-auto bg-white" style="width: 210mm; max-width: 210mm; font-family: 'Times New Roman', serif; text-transform: none;">
                     <!-- KOP SURAT (RESMI: LOGO KIRI, TEKS RATA TENGAH) -->
                     <div style="border-bottom: 3px solid #000; padding-bottom: 0; margin-bottom: 0;">
-                        <div style="display:grid; grid-template-columns: 110px 1fr 110px; align-items:center; column-gap: 10px;">
+                        <div style="display:grid; grid-template-columns: 110px 1fr 90px; align-items:center; column-gap: 10px;">
                             <div style="display:flex; align-items:center; justify-content:flex-start;">
                                 <!-- BUNGKUS PERSEGI (TANPA GARIS) UNTUK MENJAGA RATA TENGAH KOP -->
                                 <div style="width:100px; height:100px; border:0; display:flex; align-items:center; justify-content:center; box-sizing:border-box; background:#fff;">
                                     <img src="${CONFIG.KEMENKEU_LOGO}" alt="Logo Kemenkeu" style="height: 95px !important; width: auto; display:block;" loading="lazy" decoding="async" referrerpolicy="no-referrer">
                                 </div>
                             </div>
-                            <div style="text-align:center; line-height: 1.06;">
+                            <div style="text-align:center; line-height: 1.12; padding-left: 6px;">
                                 <div style="font-size: 18px; font-weight: 800;">KEMENTERIAN KEUANGAN REPUBLIK INDONESIA</div>
                                 <div style="font-size: 18px; font-weight: 800;">DIREKTORAT JENDERAL BEA DAN CUKAI</div>
                                 <div style="font-size: 17px; font-weight: 800;">KANTOR PELAYANAN UTAMA BEA DAN CUKAI TIPE A</div>
