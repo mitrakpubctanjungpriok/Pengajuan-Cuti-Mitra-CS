@@ -1980,65 +1980,71 @@
             const selectedEmp = state.employees.find(e => e.id === state.statusCheckId);
 
             return `
-                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-xl sm:text-2xl font-bold text-gray-800">📋 CEK STATUS PENGAJUAN</h2>
-                            <button onclick="closeStatusCheck()" class="p-2 hover:bg-gray-100 rounded-lg">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                </svg>
-                            </button>
-                        </div>
-
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">CARI NAMA KARYAWAN</label>
-                                <div class="relative">
-                                    <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 overflow-y-auto">
+                    <div class="min-h-[100svh] flex items-start sm:items-center justify-center p-4 pb-28 sm:pb-4">
+                        <div data-status-modal class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-auto max-h-[90svh] overflow-y-auto" style="-webkit-overflow-scrolling: touch;">
+                            <div class="flex justify-between items-center mb-6">
+                                <h2 class="text-xl sm:text-2xl font-bold text-gray-800">📋 CEK STATUS PENGAJUAN</h2>
+                                <button onclick="closeStatusCheck()" class="p-2 hover:bg-gray-100 rounded-lg">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                     </svg>
-                                    <input type="text" id="statusEmployeeSearch" class="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-lg" value="${state.statusEmployeeSearchTerm || ''}" placeholder="CARI NAMA KARYAWAN..." oninput="updateStatusEmployeeSearch(this.value)">
-                                </div>
-                                <div id="statusEmployeeList" class="mt-2 border border-gray-200 rounded-lg max-h-56 overflow-y-auto">
-                                    ${filtered.length === 0 ? `
-                                        <div class="p-3 text-sm text-gray-500">TIDAK ADA KARYAWAN DITEMUKAN</div>
-                                    ` : filtered.map(emp => `
-                                        <button type="button" onclick="selectStatusEmployee('${emp.id}')" class="w-full text-left p-3 hover:bg-indigo-50 transition border-b last:border-b-0 border-gray-100">
-                                            <div class="font-semibold text-gray-800">${emp.name}</div>
-                                            <div class="text-xs text-gray-500">ID: ${emp.id}</div>
-                                        </button>
-                                    `).join('')}
-                                </div>
+                                </button>
                             </div>
 
-                            ${selectedEmp ? `
-                                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
-                                    <div class="text-sm text-gray-600">KARYAWAN TERPILIH</div>
-                                    <div class="font-bold text-indigo-700">${selectedEmp.name}</div>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">CARI NAMA KARYAWAN</label>
+                                    <div class="relative">
+                                        <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                        </svg>
+                                        <input type="text" id="statusEmployeeSearch" class="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-lg" value="${state.statusEmployeeSearchTerm || ''}" placeholder="CARI NAMA KARYAWAN..." oninput="updateStatusEmployeeSearch(this.value)">
+                                    </div>
+                                    <div id="statusEmployeeList" class="mt-2 border border-gray-200 rounded-lg max-h-56 overflow-y-auto" style="-webkit-overflow-scrolling: touch;">
+                                        ${filtered.length === 0 ? `
+                                            <div class="p-3 text-sm text-gray-500">TIDAK ADA KARYAWAN DITEMUKAN</div>
+                                        ` : filtered.map(emp => `
+                                            <button type="button" onclick="selectStatusEmployee('${emp.id}')" class="w-full text-left p-3 hover:bg-indigo-50 transition border-b last:border-b-0 border-gray-100">
+                                                <div class="font-semibold text-gray-800">${emp.name}</div>
+                                                <div class="text-xs text-gray-500">ID: ${emp.id}</div>
+                                            </button>
+                                        `).join('')}
+                                    </div>
                                 </div>
-                            ` : ''}
 
-                            <button onclick="checkStatus()" class="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition ${state.loading ? 'opacity-50' : ''}">
-                                ${state.loading ? 'MENCARI...' : 'CEK STATUS'}
-                            </button>
-                            
-                            ${state.statusCheckResult ? `
-                                <div class="border-t pt-4 mt-4">
-                                    <h3 class="font-bold text-gray-800 mb-3">HASIL PENCARIAN:</h3>
-                                    ${state.statusCheckResult.length === 0 ? `
-                                        <div class="text-center py-4 text-gray-500 bg-gray-50 rounded-lg">TIDAK ADA PENGAJUAN DITEMUKAN</div>
-                                    ` : state.statusCheckResult.map(req => `
-                                        <div class="border rounded-lg p-3 mb-2 ${req.status === 'MENUNGGU' ? 'bg-yellow-50 border-yellow-200' : req.status === 'DISETUJUI' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}">
-                                            <div class="text-sm text-gray-600">${req.jenisCuti}</div>
-                                            <div class="font-semibold">${formatDateShort(req.tanggalMulai)} - ${formatDateShort(req.tanggalSelesai)}</div>
-                                            <span class="inline-block mt-2 px-3 py-1 rounded-full text-sm font-semibold border ${req.status === 'MENUNGGU' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' : req.status === 'DISETUJUI' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}">
-                                                ${req.status}
-                                            </span>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            ` : ''}
+                                ${selectedEmp ? `
+                                    <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                                        <div class="text-sm text-gray-600">KARYAWAN TERPILIH</div>
+                                        <div class="font-bold text-indigo-700">${selectedEmp.name}</div>
+                                    </div>
+                                ` : ''}
+
+                                <button onclick="checkStatus()" class="w-full py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition ${state.loading ? 'opacity-50' : ''}">
+                                    ${state.loading ? 'MENCARI...' : 'CEK STATUS'}
+                                </button>
+                                
+                                ${state.statusCheckResult ? `
+                                    <div class="border-t pt-4 mt-4">
+                                        <h3 class="font-bold text-gray-800 mb-3">HASIL PENCARIAN:</h3>
+                                        ${state.statusCheckResult.length === 0 ? `
+                                            <div class="text-center py-4 text-gray-500 bg-gray-50 rounded-lg">TIDAK ADA PENGAJUAN DITEMUKAN</div>
+                                        ` : `
+                                            <div class="max-h-72 overflow-y-auto pr-1" style="-webkit-overflow-scrolling: touch;">
+                                                ${state.statusCheckResult.map(req => `
+                                                    <div class="border rounded-lg p-3 mb-2 ${req.status === 'MENUNGGU' ? 'bg-yellow-50 border-yellow-200' : req.status === 'DISETUJUI' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}">
+                                                        <div class="text-sm text-gray-600">${req.jenisCuti}</div>
+                                                        <div class="font-semibold">${formatDateShort(req.tanggalMulai)} - ${formatDateShort(req.tanggalSelesai)}</div>
+                                                        <span class="inline-block mt-2 px-3 py-1 rounded-full text-sm font-semibold border ${req.status === 'MENUNGGU' ? 'bg-yellow-100 text-yellow-700 border-yellow-300' : req.status === 'DISETUJUI' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}">
+                                                            ${req.status}
+                                                        </span>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        `}
+                                    </div>
+                                ` : ''}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2446,8 +2452,21 @@
                 };
             }
 
-            // Status check input (SEKARANG BERDASARKAN NAMA, INPUT DITANGANI VIA oninput DI TEMPLATE)
-            // Tidak perlu listener khusus di sini.
+            // Status check: saat fokus input search, scroll agar tidak ketutup keyboard
+            const statusSearch = document.getElementById('statusEmployeeSearch');
+            if (statusSearch) {
+                const scrollInto = () => {
+                    setTimeout(() => {
+                        try {
+                            statusSearch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        } catch (e) {
+                            statusSearch.scrollIntoView(true);
+                        }
+                    }, 250);
+                };
+                statusSearch.addEventListener('focus', scrollInto);
+                statusSearch.addEventListener('click', scrollInto);
+            }
         }
 
         function validateForm() {
@@ -2544,11 +2563,17 @@
             state.statusCheckResult = null;
             // update tampilan info terpilih + biarkan input tetap
             render();
-            // kembalikan fokus ke input search agar enak di HP
+            // scroll ke atas modal agar hasil tidak "nyangkut" di bawah
             setTimeout(() => {
+                try {
+                    const modal = document.querySelector('[data-status-modal]');
+                    if (modal) modal.scrollTop = 0;
+                } catch (e) {
+                    // ignore
+                }
                 const el = document.getElementById('statusEmployeeSearch');
                 if (el) el.focus();
-            }, 50);
+            }, 80);
         };
 
         function updateStatusEmployeeList() {
